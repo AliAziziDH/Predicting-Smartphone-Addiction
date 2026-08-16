@@ -211,6 +211,6 @@ def test_leak_free_cv_output_shape(mock_cv_dataframe):
 
     oof_preds, mean_auc = solver.cross_validate(X, y)
 
-    # OOF predictions should have the exact shape of X
-    assert len(oof_preds) == len(X)
+    # OOF predictions should be a matrix of shape (len(X), 3)
+    assert oof_preds.shape == (len(X), 3)
     assert 0 <= mean_auc <= 1.0
