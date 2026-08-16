@@ -31,7 +31,17 @@ def main():
     print(f"Baseline (Average) OOF ROC AUC Score: {mean_auc:.4f}")
     print(f"==================================================")
 
+
+    print("Converting OOF predictions to rank percentiles...")
+    import scipy.stats
+
+    # rankdata(preds) - 0.5 / len(preds) applied column-wise
+    for i in range(oof_preds_matrix.shape[1]):
+        preds = oof_preds_matrix[:, i]
+        oof_preds_matrix[:, i] = (scipy.stats.rankdata(preds) - 0.5) / len(preds)
+
     print("Running Global SLSQP Optimization on OOF Predictions...")
+
     blender = EnsembleBlender()
     optimal_weights = blender.fit(oof_preds_matrix, y.values)
 

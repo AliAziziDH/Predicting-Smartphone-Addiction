@@ -56,3 +56,28 @@ def test_blending_auc_improvement(mock_predictions):
     # (Allowing a very small numerical tolerance)
     assert optimized_auc >= best_baseline_auc - 1e-6, \
         f"Optimized AUC ({optimized_auc:.6f}) is worse than best baseline ({best_baseline_auc:.6f})"
+
+def test_rank_blending_auc_improvement(mock_predictions):
+    import scipy.stats
+    preds_matrix, y = mock_predictions
+    blender = EnsembleBlender()
+
+    # Convert mock predictions to rank percentiles to simulate the new pipeline
+    rank_matrix = np.zeros_like(preds_matrix)
+    for i in range(preds_matrix.shape[1]):
+        rank_matrix[:, i] = (scipy.stats.rankdata(preds_matrix[:, i]) - 0.5) / len(preds_matrix)
+
+    weights = blender.fit(rank_matrix, y)
+
+    # Calculate baseline AUCs on ranks
+    auc_lgb = roc_auc_score(y, rank_matrix[:, 0])
+    auc_xgb = roc_auc_score(y, rank_matrix[:, 1])
+    auc_cat = roc_auc_score(y, rank_matrix[:, 2])
+
+    best_baseline_auc = max(auc_lgb, auc_xgb, auc_cat)
+
+    # Calculate Optimized OOF AUC
+    optimized_preds = np.dot(rank_matrix, weights)
+    optimized_auc = roc_auc_score(y, optimized_preds)
+
+    assert optimized_auc >= best_baseline_auc - 1e-6,         f"Optimized AUC ({optimized_auc:.6f}) is worse than best baseline ({best_baseline_auc:.6f})"
