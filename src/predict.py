@@ -28,12 +28,15 @@ def main():
 
     fold_models = artifact['fold_models']
     fold_encoders = artifact['fold_encoders']
+    ensemble_weights = np.array(artifact.get('ensemble_weights', [1/3, 1/3, 1/3]))
 
     num_folds = len(fold_models)
     print(f"Loaded {num_folds} folds from artifact.")
 
-    # Initialize array to store predictions from all folds
-    final_preds = np.zeros(len(X_test))
+    # Initialize matrices to store predictions from all folds for each model
+    p_lgb_folds = np.zeros((len(X_test), num_folds))
+    p_xgb_folds = np.zeros((len(X_test), num_folds))
+    p_cat_folds = np.zeros((len(X_test), num_folds))
 
     # Process each fold
     for fold in range(num_folds):
@@ -74,18 +77,21 @@ def main():
         xgb = models['xgb']
         cat = models['cat']
 
-        p_lgb = lgb.predict_proba(X_test_clean)[:, 1]
-        p_xgb = xgb.predict_proba(X_test_clean)[:, 1]
-        p_cat = cat.predict_proba(X_test_clean)[:, 1]
+        p_lgb_folds[:, fold] = lgb.predict_proba(X_test_clean)[:, 1]
+        p_xgb_folds[:, fold] = xgb.predict_proba(X_test_clean)[:, 1]
+        p_cat_folds[:, fold] = cat.predict_proba(X_test_clean)[:, 1]
 
-        # Blend (Average) for this fold
-        fold_blend = (p_lgb + p_xgb + p_cat) / 3.0
+    # Average predictions across folds for each model
+    p_lgb_mean = np.mean(p_lgb_folds, axis=1)
+    p_xgb_mean = np.mean(p_xgb_folds, axis=1)
+    p_cat_mean = np.mean(p_cat_folds, axis=1)
 
-        # Add to final predictions array
-        final_preds += fold_blend
+    # Combine into a single matrix
+    test_preds_matrix = np.column_stack((p_lgb_mean, p_xgb_mean, p_cat_mean))
 
-    # Average across all folds
-    final_preds /= num_folds
+    # Apply global optimized weights
+    print(f"Applying global ensemble weights: {ensemble_weights}")
+    final_preds = np.dot(test_preds_matrix, ensemble_weights)
 
     print("Generating submission file...")
     submission = pd.DataFrame({

@@ -9,6 +9,8 @@ from xgboost import XGBClassifier
 from catboost import CatBoostClassifier
 import optuna
 
+from scipy.optimize import minimize
+
 from src.model.formulation import preprocess_and_engineer
 
 class CompetitionSolver:
@@ -28,7 +30,7 @@ class CompetitionSolver:
 
         cv = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state)
 
-        oof_preds = np.zeros(len(X))
+        oof_preds_matrix = np.zeros((len(X), 3))  # 3 models: lgb, xgb, cat
         fold_scores = []
 
         # Artifacts for Model Persistence
@@ -110,7 +112,7 @@ class CompetitionSolver:
             p_xgb = xgb.predict_proba(X_val_clean)[:, 1]
             p_cat = cat.predict_proba(X_val_clean)[:, 1]
 
-            # Simple blending (Average)
+            # Simple blending (Average) for baseline info
             blend_preds = (p_lgb + p_xgb + p_cat) / 3.0
 
             # Store models for this fold
@@ -120,12 +122,15 @@ class CompetitionSolver:
                 'cat': cat
             })
 
-            oof_preds[val_idx] = blend_preds
+            oof_preds_matrix[val_idx, 0] = p_lgb
+            oof_preds_matrix[val_idx, 1] = p_xgb
+            oof_preds_matrix[val_idx, 2] = p_cat
+
             fold_auc = roc_auc_score(y_val, blend_preds)
             fold_scores.append(fold_auc)
 
         mean_auc = np.mean(fold_scores)
-        return oof_preds, mean_auc
+        return oof_preds_matrix, mean_auc
 
 class OptunaTuner:
     """
@@ -155,3 +160,47 @@ class OptunaTuner:
         study = optuna.create_study(direction='maximize')
         study.optimize(lambda trial: self.objective(trial, X, y), n_trials=self.n_trials)
         return study.best_params
+
+class EnsembleBlender:
+    def __init__(self):
+        self.weights_ = None
+
+    def _objective(self, weights: np.ndarray, preds_matrix: np.ndarray, y: np.ndarray) -> float:
+        """
+        Negative ROC AUC to minimize via SLSQP.
+        """
+        # Compute weighted sum
+        blend_preds = np.dot(preds_matrix, weights)
+        # Minimize negative AUC
+        return -roc_auc_score(y, blend_preds)
+
+    def fit(self, preds_matrix: np.ndarray, y: np.ndarray) -> np.ndarray:
+        """
+        Optimize weights using SLSQP bounded to [0, 1] and sum=1.
+        preds_matrix should be shape (n_samples, n_models).
+        """
+        n_models = preds_matrix.shape[1]
+
+        # Initial guess: equal weights
+        init_weights = np.ones(n_models) / n_models
+
+        # Bounds: [0.0, 1.0] for each weight
+        bounds = [(0.0, 1.0) for _ in range(n_models)]
+
+        # Constraints: sum(weights) = 1.0
+        # For SLSQP equality constraint, the function should evaluate to 0
+        constraints = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1.0}]
+
+        # Run optimization
+        result = minimize(
+            self._objective,
+            x0=init_weights,
+            args=(preds_matrix, y),
+            method='SLSQP',
+            bounds=bounds,
+            constraints=constraints,
+            options={'disp': False}
+        )
+
+        self.weights_ = result.x
+        return self.weights_
