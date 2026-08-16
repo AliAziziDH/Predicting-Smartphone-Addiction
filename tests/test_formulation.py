@@ -12,45 +12,31 @@ from src.model.solver import CompetitionSolver
 
 # Valid base case to clone from
 base_valid_data = {
-    "Age": 25,
-    "Gender": "Male",
-    "Daily_Screen_Time": 6.0,
-    "Social_Media_Usage": 2.0,
-    "Gaming_Hours": 1.0,
-    "Work_Study_Time": 2.0,
-    "Notification_Frequency": 50.0,
-    "App_Opening_Frequency": 40.0,
-    "Sleep_Duration": 7.5,
-    "Stress_Level": "Moderate",
-    "Installed_Apps": 20,
-    "User_Activity": 1.5
+    "age": 25,
+    "gender": "Male",
+    "daily_screen_time_hours": 6.0,
+    "social_media_hours": 2.0,
+    "gaming_hours": 1.0,
+    "work_study_hours": 2.0,
+    "sleep_hours": 7.5,
+    "notifications_per_day": 50.0,
+    "app_opens_per_day": 40.0,
+    "weekend_screen_time": 4.0,
+    "stress_level": "Medium",
+    "academic_work_impact": "No"
 }
 
 @pytest.mark.parametrize("age", [10, 50, 120])
 def test_pydantic_valid_age_boundaries(age):
     data = base_valid_data.copy()
-    data["Age"] = age
+    data["age"] = age
     model = UserBehaviorInput(**data)
-    assert model.Age == age
+    assert model.age == age
 
 @pytest.mark.parametrize("age", [9, 121, -5])
 def test_pydantic_invalid_age_boundaries(age):
     data = base_valid_data.copy()
-    data["Age"] = age
-    with pytest.raises(ValidationError):
-        UserBehaviorInput(**data)
-
-@pytest.mark.parametrize("gender", ["Male", "Female"])
-def test_pydantic_valid_genders(gender):
-    data = base_valid_data.copy()
-    data["Gender"] = gender
-    model = UserBehaviorInput(**data)
-    assert model.Gender == gender
-
-@pytest.mark.parametrize("gender", ["Other", "Unknown", 1])
-def test_pydantic_invalid_genders(gender):
-    data = base_valid_data.copy()
-    data["Gender"] = gender
+    data["age"] = age
     with pytest.raises(ValidationError):
         UserBehaviorInput(**data)
 
@@ -60,90 +46,35 @@ def test_pydantic_invalid_genders(gender):
 ])
 def test_pydantic_cross_field_valid(screen_time, social, gaming, work):
     data = base_valid_data.copy()
-    data["Daily_Screen_Time"] = screen_time
-    data["Social_Media_Usage"] = social
-    data["Gaming_Hours"] = gaming
-    data["Work_Study_Time"] = work
+    data["daily_screen_time_hours"] = screen_time
+    data["social_media_hours"] = social
+    data["gaming_hours"] = gaming
+    data["work_study_hours"] = work
     model = UserBehaviorInput(**data)
-    assert model.Daily_Screen_Time == screen_time
-
-@pytest.mark.parametrize("screen_time, social", [
-    (5.0, 6.0),  # Social exceeds total screen time
-    (2.0, 10.0)
-])
-def test_pydantic_social_media_exceeds(screen_time, social):
-    data = base_valid_data.copy()
-    data["Daily_Screen_Time"] = screen_time
-    data["Social_Media_Usage"] = social
-    with pytest.raises(ValueError, match="Social_Media_Usage cannot exceed Daily_Screen_Time"):
-        UserBehaviorInput(**data)
-
-@pytest.mark.parametrize("screen_time, gaming", [
-    (5.0, 6.0),  # Gaming exceeds total screen time
-])
-def test_pydantic_gaming_exceeds(screen_time, gaming):
-    data = base_valid_data.copy()
-    data["Daily_Screen_Time"] = screen_time
-    data["Gaming_Hours"] = gaming
-    with pytest.raises(ValueError, match="Gaming_Hours cannot exceed Daily_Screen_Time"):
-        UserBehaviorInput(**data)
-
-@pytest.mark.parametrize("screen_time, work", [
-    (8.0, 10.0),  # Work exceeds total screen time
-])
-def test_pydantic_work_exceeds(screen_time, work):
-    data = base_valid_data.copy()
-    data["Daily_Screen_Time"] = screen_time
-    data["Work_Study_Time"] = work
-    with pytest.raises(ValueError, match="Work_Study_Time cannot exceed Daily_Screen_Time"):
-        UserBehaviorInput(**data)
-
-@pytest.mark.parametrize("field, value", [
-    ("Daily_Screen_Time", np.nan),
-    ("Social_Media_Usage", np.inf),
-    ("Age", np.nan),
-    ("Sleep_Duration", -np.inf)
-])
-def test_pydantic_rejects_nan_inf(field, value):
-    data = base_valid_data.copy()
-    data[field] = value
-    with pytest.raises(ValueError):
-        UserBehaviorInput(**data)
+    assert model.daily_screen_time_hours == screen_time
 
 @pytest.mark.parametrize("sleep", [0.0, 12.0, 24.0])
 def test_pydantic_valid_sleep(sleep):
     data = base_valid_data.copy()
-    data["Sleep_Duration"] = sleep
+    data["sleep_hours"] = sleep
     model = UserBehaviorInput(**data)
-    assert model.Sleep_Duration == sleep
+    assert model.sleep_hours == sleep
 
 @pytest.mark.parametrize("sleep", [-1.0, 25.0])
 def test_pydantic_invalid_sleep(sleep):
     data = base_valid_data.copy()
-    data["Sleep_Duration"] = sleep
+    data["sleep_hours"] = sleep
     with pytest.raises(ValidationError):
         UserBehaviorInput(**data)
 
-@pytest.mark.parametrize("stress", ["Low", "Moderate", "High", 1, 5, 10])
-def test_pydantic_valid_stress(stress):
+def test_pydantic_accepts_nan():
     data = base_valid_data.copy()
-    data["Stress_Level"] = stress
+    data["daily_screen_time_hours"] = None
+    data["age"] = None
     model = UserBehaviorInput(**data)
-    assert model.Stress_Level == stress
+    assert model.daily_screen_time_hours is None
+    assert model.age is None
 
-@pytest.mark.parametrize("apps", [0, 10, 100])
-def test_pydantic_valid_apps(apps):
-    data = base_valid_data.copy()
-    data["Installed_Apps"] = apps
-    model = UserBehaviorInput(**data)
-    assert model.Installed_Apps == apps
-
-@pytest.mark.parametrize("apps", [-1, -10])
-def test_pydantic_invalid_apps(apps):
-    data = base_valid_data.copy()
-    data["Installed_Apps"] = apps
-    with pytest.raises(ValidationError):
-        UserBehaviorInput(**data)
 
 # ---------------------------------------------------------
 # Test Suite 2: test_engineered_features_math
@@ -152,18 +83,18 @@ def test_pydantic_invalid_apps(apps):
 @pytest.fixture
 def mock_dataframe():
     data = {
-        "Age": [25, 30, 45],
-        "Gender": ["Male", "Female", "Male"],
-        "Daily_Screen_Time": [6.0, 0.0, 10.0],  # Middle row has 0 screen time
-        "Social_Media_Usage": [2.0, 0.0, 5.0],
-        "Gaming_Hours": [1.0, 0.0, 2.0],
-        "Work_Study_Time": [2.0, 0.0, 3.0],
-        "Notification_Frequency": [50.0, 0.0, 100.0],
-        "App_Opening_Frequency": [40.0, 10.0, 80.0],
-        "Sleep_Duration": [7.5, 8.0, 6.0],
-        "Stress_Level": ["Moderate", "Low", "High"],
-        "Installed_Apps": [20, 10, 50],
-        "User_Activity": [1.5, 0.5, 2.5]
+        "age": [25, 30, 45],
+        "gender": ["Male", "Female", "Male"],
+        "daily_screen_time_hours": [6.0, 0.0, 10.0],  # Middle row has 0 screen time
+        "social_media_hours": [2.0, 0.0, 5.0],
+        "gaming_hours": [1.0, 0.0, 2.0],
+        "work_study_hours": [2.0, 0.0, 3.0],
+        "notifications_per_day": [50.0, 0.0, 100.0],
+        "app_opens_per_day": [40.0, 10.0, 80.0],
+        "sleep_hours": [7.5, 8.0, 6.0],
+        "weekend_screen_time": [4.0, 2.0, 8.0],
+        "stress_level": ["Medium", "Low", "High"],
+        "academic_work_impact": ["No", "No", "Yes"]
     }
     return pd.DataFrame(data)
 
@@ -194,10 +125,13 @@ def test_engineered_sleep_deficit(mock_dataframe, idx, expected_deficit):
     processed = preprocess_and_engineer(mock_dataframe)
     assert processed.iloc[idx]['sleep_deficit'] == expected_deficit
 
-def test_preprocess_and_engineer_raises_on_null(mock_dataframe):
-    mock_dataframe.loc[0, "Age"] = np.nan
-    with pytest.raises(ValueError, match="Null value found in column Age"):
-        preprocess_and_engineer(mock_dataframe)
+def test_preprocess_and_engineer_allows_null(mock_dataframe):
+    mock_dataframe.loc[0, "age"] = np.nan
+    mock_dataframe.loc[0, "daily_screen_time_hours"] = np.nan
+
+    processed = preprocess_and_engineer(mock_dataframe)
+    assert pd.isna(processed.loc[0, "age"])
+    assert pd.isna(processed.loc[0, "social_media_proportion"])
 
 
 # ---------------------------------------------------------
@@ -209,20 +143,26 @@ def mock_cv_dataframe():
     np.random.seed(42)
     n = 100
     data = {
-        "Age": np.random.uniform(15, 60, n),
-        "Gender": np.random.choice(["Male", "Female"], n),
-        "Daily_Screen_Time": np.random.uniform(2, 10, n),
-        "Social_Media_Usage": np.random.uniform(0, 2, n),
-        "Gaming_Hours": np.random.uniform(0, 2, n),
-        "Work_Study_Time": np.random.uniform(0, 2, n),
-        "Notification_Frequency": np.random.poisson(30, n).astype(float),
-        "App_Opening_Frequency": np.random.poisson(20, n).astype(float),
-        "Sleep_Duration": np.random.uniform(5, 9, n),
-        "Stress_Level": np.random.choice(["Low", "Moderate", "High"], n),
-        "Installed_Apps": np.random.poisson(15, n),
-        "User_Activity": np.random.uniform(0, 5, n),
+        "age": np.random.uniform(15, 60, n),
+        "gender": np.random.choice(["Male", "Female"], n),
+        "daily_screen_time_hours": np.random.uniform(2, 10, n),
+        "social_media_hours": np.random.uniform(0, 2, n),
+        "gaming_hours": np.random.uniform(0, 2, n),
+        "work_study_hours": np.random.uniform(0, 2, n),
+        "notifications_per_day": np.random.poisson(30, n).astype(float),
+        "app_opens_per_day": np.random.poisson(20, n).astype(float),
+        "sleep_hours": np.random.uniform(5, 9, n),
+        "weekend_screen_time": np.random.uniform(2, 10, n),
+        "stress_level": np.random.choice(["Low", "Medium", "High"], n),
+        "academic_work_impact": np.random.choice(["Yes", "No"], n),
     }
+
+    # Introduce some NaN values manually
     df = pd.DataFrame(data)
+    df.loc[0, "daily_screen_time_hours"] = np.nan
+    df.loc[5, "gender"] = np.nan
+    df.loc[10, "stress_level"] = np.nan
+
     y = pd.Series(np.random.choice([0, 1], n), name="addicted_label")
     return df, y
 

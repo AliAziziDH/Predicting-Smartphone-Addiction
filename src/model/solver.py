@@ -31,6 +31,10 @@ class CompetitionSolver:
         oof_preds = np.zeros(len(X))
         fold_scores = []
 
+        # Artifacts for Model Persistence
+        self.fold_models = []
+        self.fold_encoders = []
+
         for fold, (train_idx, val_idx) in enumerate(cv.split(X, y)):
             X_train, y_train = X.iloc[train_idx], y.iloc[train_idx]
             X_val, y_val = X.iloc[val_idx], y.iloc[val_idx]
@@ -42,8 +46,30 @@ class CompetitionSolver:
             X_train_clean = preprocess_and_engineer(X_train)
             X_val_clean = preprocess_and_engineer(X_val)
 
+            # 1.5 Leak-Free Local Imputation
+            num_cols = X_train_clean.select_dtypes(include=[np.number]).columns
+            cat_cols = X_train_clean.select_dtypes(exclude=[np.number]).columns
+
+            imputation_medians = {}
+            for col in num_cols:
+                median_val = X_train_clean[col].median()
+                if pd.isna(median_val):
+                    median_val = 0.0 # fallback
+                imputation_medians[col] = median_val
+                X_train_clean[col] = X_train_clean[col].fillna(median_val)
+                X_val_clean[col] = X_val_clean[col].fillna(median_val)
+
+            imputation_modes = {}
+            for col in cat_cols:
+                if not X_train_clean[col].dropna().empty:
+                    mode_val = X_train_clean[col].dropna().mode()[0]
+                else:
+                    mode_val = "Unknown"
+                imputation_modes[col] = mode_val
+                X_train_clean[col] = X_train_clean[col].fillna(mode_val)
+                X_val_clean[col] = X_val_clean[col].fillna(mode_val)
+
             # 2. Categorical Encoding localized to the fold
-            cat_cols = ['Gender', 'Stress_Level']
             encoders = {}
             for col in cat_cols:
                 le = LabelEncoder()
@@ -52,10 +78,6 @@ class CompetitionSolver:
                 X_train_clean[col] = le.fit_transform(X_train_clean[col].astype(str))
 
                 # Transform validation fold (handle unseen labels safely)
-                # For simplicity here we assume validation labels exist in train,
-                # but map unseen to a special value (e.g., -1) in robust production
-                # Here we use fit_transform on val as a fallback if unseen, but better is safe map
-
                 # Safe mapping
                 val_classes = np.unique(X_val_clean[col].astype(str))
                 missing_classes = set(val_classes) - set(le.classes_)
@@ -63,6 +85,14 @@ class CompetitionSolver:
                     # add missing classes to le.classes_
                     le.classes_ = np.append(le.classes_, list(missing_classes))
                 X_val_clean[col] = le.transform(X_val_clean[col].astype(str))
+
+                encoders[col] = le
+
+            self.fold_encoders.append({
+                'encoders': encoders,
+                'imputation_medians': imputation_medians,
+                'imputation_modes': imputation_modes
+            })
 
             # --- Modeling Ensembles ---
             # Lightweight baseline parameters
@@ -82,6 +112,13 @@ class CompetitionSolver:
 
             # Simple blending (Average)
             blend_preds = (p_lgb + p_xgb + p_cat) / 3.0
+
+            # Store models for this fold
+            self.fold_models.append({
+                'lgb': lgb,
+                'xgb': xgb,
+                'cat': cat
+            })
 
             oof_preds[val_idx] = blend_preds
             fold_auc = roc_auc_score(y_val, blend_preds)
