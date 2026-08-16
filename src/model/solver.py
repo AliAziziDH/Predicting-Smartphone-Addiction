@@ -100,7 +100,7 @@ class CompetitionSolver:
             # Lightweight baseline parameters
             lgb = LGBMClassifier(random_state=self.random_state, n_jobs=-1, verbose=-1)
             xgb = XGBClassifier(random_state=self.random_state, n_jobs=-1, eval_metric='logloss', enable_categorical=False)
-            cat = CatBoostClassifier(random_state=self.random_state, verbose=0)
+            cat = CatBoostClassifier(random_state=self.random_state, thread_count=-1, verbose=0)
 
             # Train models
             lgb.fit(X_train_clean, y_train)
