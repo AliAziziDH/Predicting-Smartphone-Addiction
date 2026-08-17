@@ -103,7 +103,7 @@ def test_engineered_features_shape(mock_dataframe):
     assert mock_dataframe.shape[1] == 12
     processed = preprocess_and_engineer(mock_dataframe)
     # output should have 12 original + 9 engineered = 21
-    assert processed.shape[1] == 21
+    assert processed.shape[1] == 22
 
 def test_engineered_features_zero_division(mock_dataframe):
     # Daily_Screen_Time is 0 for index 1

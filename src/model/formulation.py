@@ -98,4 +98,9 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
     # 6. weekend_overuse_index: weekend_screen_time / daily_screen_time_hours
     df_clean['weekend_overuse_index'] = np.where(denom > epsilon, df_clean['weekend_screen_time'] / denom, 0.0)
 
+
+    # 7. other_screen: daily_screen_time_hours - (social_media_hours + gaming_hours + work_study_hours)
+    # NaNs will naturally propagate here without filling.
+    df_clean['other_screen'] = df_clean['daily_screen_time_hours'] - (df_clean['social_media_hours'] + df_clean['gaming_hours'] + df_clean['work_study_hours'])
+
     return df_clean
