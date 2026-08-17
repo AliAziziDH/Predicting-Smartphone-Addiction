@@ -87,6 +87,7 @@ class CompetitionSolver:
         self.fold_encoders = []
 
         for fold, (train_idx, val_idx) in enumerate(cv.split(X, y)):
+            print(f'Starting fold {fold + 1}/{self.n_splits}...', flush=True)
             X_train, y_train = X.iloc[train_idx], y.iloc[train_idx]
             X_val, y_val = X.iloc[val_idx], y.iloc[val_idx]
 
@@ -97,45 +98,32 @@ class CompetitionSolver:
             X_train_clean = preprocess_and_engineer(X_train)
             X_val_clean = preprocess_and_engineer(X_val)
 
-            # 1.5 Leak-Free Local Imputation
-            num_cols = X_train_clean.select_dtypes(include=[np.number]).columns
+            # 1.5 Categorical cols for encoding
             cat_cols = X_train_clean.select_dtypes(exclude=[np.number]).columns
 
+            # No imputation! GBDTs handle NaNs natively.
             imputation_medians = {}
-            for col in num_cols:
-                median_val = X_train_clean[col].median()
-                if pd.isna(median_val):
-                    median_val = 0.0 # fallback
-                imputation_medians[col] = median_val
-                X_train_clean[col] = X_train_clean[col].fillna(median_val)
-                X_val_clean[col] = X_val_clean[col].fillna(median_val)
-
             imputation_modes = {}
-            for col in cat_cols:
-                if not X_train_clean[col].dropna().empty:
-                    mode_val = X_train_clean[col].dropna().mode()[0]
-                else:
-                    mode_val = "Unknown"
-                imputation_modes[col] = mode_val
-                X_train_clean[col] = X_train_clean[col].fillna(mode_val)
-                X_val_clean[col] = X_val_clean[col].fillna(mode_val)
 
             # 2. Categorical Encoding localized to the fold
             encoders = {}
             for col in cat_cols:
                 le = LabelEncoder()
+                # To be absolutely safe from np.nan or pd.NA making it into astype(str) which pd.Series leaves as floats sometimes:
+                train_series = X_train_clean[col].fillna('Missing').astype(str)
+                val_series = X_val_clean[col].fillna('Missing').astype(str)
+
                 # Fit only on training fold!
-                # Convert to string to handle mixed types gracefully if needed
-                X_train_clean[col] = le.fit_transform(X_train_clean[col].astype(str))
+                X_train_clean[col] = le.fit_transform(train_series)
 
                 # Transform validation fold (handle unseen labels safely)
-                # Safe mapping
-                val_classes = np.unique(X_val_clean[col].astype(str))
+                # Convert to plain list to avoid numpy string array mixing
+                val_classes = list(set(val_series.tolist()))
                 missing_classes = set(val_classes) - set(le.classes_)
                 if missing_classes:
                     # add missing classes to le.classes_
                     le.classes_ = np.append(le.classes_, list(missing_classes))
-                X_val_clean[col] = le.transform(X_val_clean[col].astype(str))
+                X_val_clean[col] = le.transform(val_series)
 
                 encoders[col] = le
 

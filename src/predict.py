@@ -58,28 +58,21 @@ def main():
         # Extract fold-specific artifacts
         fold_artifacts = fold_encoders[fold]
         encoders = fold_artifacts['encoders']
-        imputation_medians = fold_artifacts['imputation_medians']
-        imputation_modes = fold_artifacts['imputation_modes']
-
-        # 2. Leak-Free Local Imputation (apply fold stats)
-        for col, median_val in imputation_medians.items():
-            if col in X_test_clean.columns:
-                X_test_clean[col] = X_test_clean[col].fillna(median_val)
-
-        for col, mode_val in imputation_modes.items():
-            if col in X_test_clean.columns:
-                X_test_clean[col] = X_test_clean[col].fillna(mode_val)
+        # No imputation logic needed
 
         # 3. Categorical Encoding (apply fold encoders safely)
         for col, le in encoders.items():
             if col in X_test_clean.columns:
+                # To be absolutely safe from np.nan or pd.NA
+                test_series = X_test_clean[col].fillna('Missing').astype(str)
+
                 # Handle unseen labels in test set safely
-                test_classes = np.unique(X_test_clean[col].astype(str))
+                test_classes = list(set(test_series.tolist()))
                 missing_classes = set(test_classes) - set(le.classes_)
                 if missing_classes:
                     # append unseen classes to the encoder classes to prevent ValueError
                     le.classes_ = np.append(le.classes_, list(missing_classes))
-                X_test_clean[col] = le.transform(X_test_clean[col].astype(str))
+                X_test_clean[col] = le.transform(test_series)
 
         # 4. Generate Predictions from fold models
         models = fold_models[fold]
