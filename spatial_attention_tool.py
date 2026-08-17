@@ -18,6 +18,7 @@ object-centric perception by:
 """
 
 import numpy as np
+from collections import deque
 from typing import List, Dict, Tuple, Optional, Any
 
 class SpatialAttentionTool:
@@ -70,12 +71,12 @@ class SpatialAttentionTool:
                     continue
                 
                 # Flood-fill (BFS) to segment this specific component
-                queue = [(r, c)]
+                queue = deque([(r, c)])
                 visited[r, c] = True
                 coords = []
                 
                 while queue:
-                    curr_r, curr_c = queue.pop(0)
+                    curr_r, curr_c = queue.popleft()
                     coords.append((curr_r, curr_c))
                     
                     for dr, dc in directions:
