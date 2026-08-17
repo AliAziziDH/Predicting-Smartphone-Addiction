@@ -300,5 +300,5 @@ $$ \hat{p} = \frac{rankdata(p) - 0.5}{N} $$"""))
         json.dump(notebook, f, indent=1)
 
 if __name__ == '__main__':
-    compile_notebook('outputs/predicting-smartphone-addiction-elite.ipynb')
-    print("Notebook compiled successfully at outputs/predicting-smartphone-addiction-elite.ipynb")
+    compile_notebook('predicting-smartphone-addiction-elite.ipynb')
+    print("Notebook compiled successfully at predicting-smartphone-addiction-elite.ipynb")
