@@ -3,11 +3,21 @@ import pandas as pd
 import joblib
 from src.model.solver import CompetitionSolver, EnsembleBlender
 
+def resolve_data_path(filename):
+    paths_to_check = [
+        f"/kaggle/input/playground-series-s6e8/{filename}",
+        f"../input/playground-series-s6e8/{filename}",
+        f"data/{filename}"
+    ]
+    for path in paths_to_check:
+        if os.path.exists(path):
+            print(f"[INFO] Successfully resolved {filename} to: {path}")
+            return path
+    raise FileNotFoundError(f"Could not find {filename} in any of the expected locations: {paths_to_check}")
+
 def main():
     print("Loading training data...")
-    train_path = os.path.join("data", "train.csv")
-    if not os.path.exists(train_path):
-        raise FileNotFoundError(f"Training data not found at {train_path}")
+    train_path = resolve_data_path("train.csv")
 
     df_train = pd.read_csv(train_path)
 

@@ -56,17 +56,20 @@ from catboost import CatBoostClassifier
 warnings.filterwarnings('ignore')
 
 # Dynamic Kaggle vs Local Path Resolution
-train_path = "/kaggle/input/playground-series-s6e8/train.csv"
-if not os.path.exists(train_path):
-    train_path = "../input/playground-series-s6e8/train.csv"
-if not os.path.exists(train_path):
-    train_path = "data/train.csv"  # Local fallback
+def resolve_data_path(filename):
+    paths_to_check = [
+        f"/kaggle/input/playground-series-s6e8/{filename}",
+        f"../input/playground-series-s6e8/{filename}",
+        f"data/{filename}"
+    ]
+    for path in paths_to_check:
+        if os.path.exists(path):
+            print(f"[INFO] Successfully resolved {filename} to: {path}")
+            return path
+    raise FileNotFoundError(f"Could not find {filename} in any of the expected locations: {paths_to_check}")
 
-test_path = "/kaggle/input/playground-series-s6e8/test.csv"
-if not os.path.exists(test_path):
-    test_path = "../input/playground-series-s6e8/test.csv"
-if not os.path.exists(test_path):
-    test_path = "data/test.csv"  # Local fallback
+train_path = resolve_data_path("train.csv")
+test_path = resolve_data_path("test.csv")
 
 # Ensure reproducibility
 def seed_everything(seed=42):
