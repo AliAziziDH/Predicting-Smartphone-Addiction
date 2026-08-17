@@ -13,6 +13,55 @@ from scipy.optimize import minimize
 
 from src.model.formulation import preprocess_and_engineer
 
+
+# Highly optimized, stabilized GBDT configurations calibrated for high-dimensional tabular classification
+LGBM_PARAMS = {
+    "objective": "binary",
+    "metric": "auc",
+    "boosting_type": "gbdt",
+    "n_estimators": 1500,
+    "learning_rate": 0.03,
+    "num_leaves": 63,
+    "max_depth": 8,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "reg_alpha": 0.1,
+    "reg_lambda": 1.0,
+    "random_state": 42,
+    "verbose": -1,
+    "n_jobs": -1
+}
+
+XGB_PARAMS = {
+    "objective": "binary:logistic",
+    "eval_metric": "auc",
+    "n_estimators": 1500,
+    "learning_rate": 0.03,
+    "max_depth": 6,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "reg_alpha": 0.1,
+    "reg_lambda": 1.0,
+    "random_state": 42,
+    "tree_method": "hist",
+    "n_jobs": -1
+}
+
+CAT_PARAMS = {
+    "loss_function": "Logloss",
+    "eval_metric": "AUC",
+    "iterations": 1500,
+    "learning_rate": 0.05,
+    "depth": 6,
+    "l2_leaf_reg": 3,
+    "bootstrap_type": "Bernoulli",
+    "subsample": 0.8,
+    "random_state": 42,
+    "verbose": False,
+    "thread_count": -1
+}
+
+
 class CompetitionSolver:
     def __init__(self, n_splits: int = 10, random_state: int = 42):
         self.n_splits = n_splits
@@ -98,9 +147,9 @@ class CompetitionSolver:
 
             # --- Modeling Ensembles ---
             # Lightweight baseline parameters
-            lgb = LGBMClassifier(random_state=self.random_state, n_jobs=-1, verbose=-1)
-            xgb = XGBClassifier(random_state=self.random_state, n_jobs=-1, eval_metric='logloss', enable_categorical=False)
-            cat = CatBoostClassifier(random_state=self.random_state, verbose=0)
+            lgb = LGBMClassifier(**LGBM_PARAMS)
+            xgb = XGBClassifier(**XGB_PARAMS)
+            cat = CatBoostClassifier(**CAT_PARAMS)
 
             # Train models
             lgb.fit(X_train_clean, y_train)
