@@ -4,11 +4,21 @@ import pandas as pd
 import joblib
 from src.model.formulation import preprocess_and_engineer
 
+def resolve_data_path(filename):
+    paths_to_check = [
+        f"/kaggle/input/playground-series-s6e8/{filename}",
+        f"../input/playground-series-s6e8/{filename}",
+        f"data/{filename}"
+    ]
+    for path in paths_to_check:
+        if os.path.exists(path):
+            print(f"[INFO] Successfully resolved {filename} to: {path}")
+            return path
+    raise FileNotFoundError(f"Could not find {filename} in any of the expected locations: {paths_to_check}")
+
 def main():
     print("Loading test data...")
-    test_path = os.path.join("data", "test.csv")
-    if not os.path.exists(test_path):
-        raise FileNotFoundError(f"Test data not found at {test_path}")
+    test_path = resolve_data_path("test.csv")
 
     df_test = pd.read_csv(test_path)
 
