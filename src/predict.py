@@ -86,10 +86,18 @@ def main():
     p_xgb_mean = np.mean(p_xgb_folds, axis=1)
     p_cat_mean = np.mean(p_cat_folds, axis=1)
 
+
     # Combine into a single matrix
     test_preds_matrix = np.column_stack((p_lgb_mean, p_xgb_mean, p_cat_mean))
 
+    print("Converting test predictions to rank percentiles...")
+    import scipy.stats
+    for i in range(test_preds_matrix.shape[1]):
+        preds = test_preds_matrix[:, i]
+        test_preds_matrix[:, i] = (scipy.stats.rankdata(preds) - 0.5) / len(preds)
+
     # Apply global optimized weights
+
     print(f"Applying global ensemble weights: {ensemble_weights}")
     final_preds = np.dot(test_preds_matrix, ensemble_weights)
 

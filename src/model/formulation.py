@@ -77,7 +77,25 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
     # Assuming 24 hours in a day
     df_clean['notifications_per_hour'] = df_clean['notifications_per_day'] / 24.0
 
-    # d) sleep_deficit: Target sleep hours (e.g., 8) minus actual sleep hours
-    df_clean['sleep_deficit'] = 8.0 - df_clean['sleep_hours']
+    # 1. sleep_deficit: max(0, 8 - sleep_duration)
+    df_clean['sleep_deficit'] = np.maximum(0.0, 8.0 - df_clean['sleep_hours'])
+
+    # 2. distraction_ratio: (social_media_hours + gaming_hours) / daily_screen_time_hours
+    denom = df_clean['daily_screen_time_hours']
+    num = df_clean['social_media_hours'] + df_clean['gaming_hours']
+    df_clean['distraction_ratio'] = np.where(denom > epsilon, num / denom, 0.0)
+
+    # 3. notification_intensity: notification_frequency / daily_screen_time_hours
+    df_clean['notification_intensity'] = np.where(denom > epsilon, df_clean['notifications_per_day'] / denom, 0.0)
+
+    # 4. app_opening_intensity: app_opening_frequency / daily_screen_time_hours
+    df_clean['app_opening_intensity'] = np.where(denom > epsilon, df_clean['app_opens_per_day'] / denom, 0.0)
+
+    # 5. screen_time_age_intensity: daily_screen_time_hours / age
+    age_denom = df_clean['age']
+    df_clean['screen_time_age_intensity'] = np.where(age_denom > epsilon, denom / age_denom, 0.0)
+
+    # 6. weekend_overuse_index: weekend_screen_time / daily_screen_time_hours
+    df_clean['weekend_overuse_index'] = np.where(denom > epsilon, df_clean['weekend_screen_time'] / denom, 0.0)
 
     return df_clean
