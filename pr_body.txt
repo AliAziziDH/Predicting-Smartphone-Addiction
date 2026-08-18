@@ -1,9 +1,9 @@
-💡 **What:** Replaced the standard Python list with `collections.deque` for the queue used in the flood-fill (BFS) segmentation algorithm within `spatial_attention_tool.py`.
+Implement elite-level time-budget and risk-ratio features, explicitly rejecting missingness indicators.
 
-🎯 **Why:** In Python, standard lists are implemented as dynamically sized arrays. Calling `pop(0)` on a standard list is an $O(N)$ operation because all subsequent elements must be shifted in memory. By substituting the list with `collections.deque`, popping elements from the left side (`popleft()`) becomes an $O(1)$ constant-time operation. This eliminates unnecessary array shifting overhead inside the `while queue:` loop.
+Added features:
+- unaccounted_hours
+- gaming_to_screen_ratio
+- social_to_screen_ratio
+- screen_to_sleep_ratio
 
-📊 **Measured Improvement:**
-- **Baseline (List `pop(0)`):** ~1.94 ms per function call on a simulated, maximum-capacity 30x30 ARC-AGI grid.
-- **Optimized (`deque.popleft()`):** ~1.91 ms per function call on the same grid.
-
-_Note: For grids up to 30x30 (900 maximum pixels), the performance difference is marginal as the overhead of instantiating Python objects masks the underlying C-array list advantages. However, this optimization brings the algorithm in line with clean-code standard practices, prevents $O(N^2)$ slowdowns scaling toward larger constraints, and reduces memory latency overhead inside the hot loop._
+Removed obsolete proportion features and changed epsilon to 1e-9.

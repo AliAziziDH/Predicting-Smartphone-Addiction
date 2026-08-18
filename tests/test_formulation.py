@@ -103,7 +103,7 @@ def test_engineered_features_shape(mock_dataframe):
     assert mock_dataframe.shape[1] == 12
     processed = preprocess_and_engineer(mock_dataframe)
     # output should have 12 original + 9 engineered = 21
-    assert processed.shape[1] == 22
+    assert processed.shape[1] == 24
 
 def test_engineered_features_zero_division(mock_dataframe):
     # Daily_Screen_Time is 0 for index 1
@@ -111,9 +111,9 @@ def test_engineered_features_zero_division(mock_dataframe):
 
     # Assert values for index 1 are not NA or Inf due to zero division
     row = processed.iloc[1]
-    assert not np.isnan(row['social_media_proportion'])
-    assert not np.isinf(row['social_media_proportion'])
-    assert not np.isnan(row['gaming_proportion'])
+    assert not np.isnan(row['social_to_screen_ratio'])
+    assert not np.isinf(row['social_to_screen_ratio'])
+    assert not np.isnan(row['gaming_to_screen_ratio'])
     assert not np.isnan(row['notifications_per_hour'])
 
 @pytest.mark.parametrize("idx, expected_deficit", [
@@ -131,7 +131,7 @@ def test_preprocess_and_engineer_allows_null(mock_dataframe):
 
     processed = preprocess_and_engineer(mock_dataframe)
     assert pd.isna(processed.loc[0, "age"])
-    assert pd.isna(processed.loc[0, "social_media_proportion"])
+    assert pd.isna(processed.loc[0, "social_to_screen_ratio"])
 
 
 # ---------------------------------------------------------
