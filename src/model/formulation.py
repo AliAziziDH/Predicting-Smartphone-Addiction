@@ -86,10 +86,7 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
     # 1. sleep_deficit: max(0, 8 - sleep_duration)
     df_clean['sleep_deficit'] = np.maximum(0.0, 8.0 - df_clean['sleep_hours'])
 
-    # 2. distraction_ratio: (social_media_hours + gaming_hours) / daily_screen_time_hours
     denom = df_clean['daily_screen_time_hours']
-    num = df_clean['social_media_hours'] + df_clean['gaming_hours']
-    df_clean['distraction_ratio'] = np.where(denom > epsilon, num / denom, 0.0)
 
     # 3. notification_intensity: notification_frequency / daily_screen_time_hours
     df_clean['notification_intensity'] = np.where(denom > epsilon, df_clean['notifications_per_day'] / denom, 0.0)

@@ -154,7 +154,7 @@ class CompetitionSolver:
             cat_cols = X_train_clean.select_dtypes(exclude=[np.number]).columns
             categorical_and_grid_features = list(cat_cols)
 
-            encoder = ValueLevelTargetEncoder(smoothing=self.te_smoothing)
+            encoder = ValueLevelTargetEncoder(smoothing=10.0, inner_splits=5)
             X_train_encoded = encoder.fit_transform(X_train_clean, y_train, cols=categorical_and_grid_features)
             X_val_encoded = encoder.transform(X_val_clean, cols=categorical_and_grid_features)
 
