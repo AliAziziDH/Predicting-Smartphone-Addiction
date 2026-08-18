@@ -65,13 +65,19 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
     df_clean = pd.DataFrame(validated_records)
 
     # 2. Feature Engineering
-    epsilon = 1e-6
+    epsilon = 1e-9
 
-    # a) social_media_proportion
-    df_clean['social_media_proportion'] = df_clean['social_media_hours'] / (df_clean['daily_screen_time_hours'] + epsilon)
+    # a) social_to_screen_ratio
+    df_clean['social_to_screen_ratio'] = df_clean['social_media_hours'] / (df_clean['daily_screen_time_hours'] + epsilon)
 
-    # b) gaming_proportion
-    df_clean['gaming_proportion'] = df_clean['gaming_hours'] / (df_clean['daily_screen_time_hours'] + epsilon)
+    # b) gaming_to_screen_ratio
+    df_clean['gaming_to_screen_ratio'] = df_clean['gaming_hours'] / (df_clean['daily_screen_time_hours'] + epsilon)
+
+    # Life Residual / Unaccounted Hours (24-Hour Constraint)
+    df_clean['unaccounted_hours'] = 24.0 - (df_clean['daily_screen_time_hours'] + df_clean['work_study_hours'] + df_clean['sleep_hours'])
+
+    # Screen time relative to sleep
+    df_clean['screen_to_sleep_ratio'] = df_clean['daily_screen_time_hours'] / (df_clean['sleep_hours'] + epsilon)
 
     # c) notifications_per_hour
     # Assuming 24 hours in a day
