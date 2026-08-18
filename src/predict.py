@@ -58,13 +58,16 @@ def main():
         # Extract fold-specific artifacts
         fold_artifacts = fold_encoders[fold]
         encoders = fold_artifacts['encoders']
+        target_encoder = fold_artifacts['target_encoder']
         # No imputation logic needed
+
+        X_test_encoded = target_encoder.transform(X_test_clean, cols=list(encoders.keys()))
 
         # 3. Categorical Encoding (apply fold encoders safely)
         for col, le in encoders.items():
-            if col in X_test_clean.columns:
+            if col in X_test_encoded.columns:
                 # To be absolutely safe from np.nan or pd.NA
-                test_series = X_test_clean[col].fillna('Missing').astype(str)
+                test_series = X_test_encoded[col].fillna('Missing').astype(str)
 
                 # Handle unseen labels in test set safely
                 test_classes = list(set(test_series.tolist()))
@@ -72,7 +75,7 @@ def main():
                 if missing_classes:
                     # append unseen classes to the encoder classes to prevent ValueError
                     le.classes_ = np.append(le.classes_, list(missing_classes))
-                X_test_clean[col] = le.transform(test_series)
+                X_test_encoded[col] = le.transform(test_series)
 
         # 4. Generate Predictions from fold models
         models = fold_models[fold]
@@ -80,9 +83,9 @@ def main():
         xgb = models['xgb']
         cat = models['cat']
 
-        p_lgb_folds[:, fold] = lgb.predict_proba(X_test_clean)[:, 1]
-        p_xgb_folds[:, fold] = xgb.predict_proba(X_test_clean)[:, 1]
-        p_cat_folds[:, fold] = cat.predict_proba(X_test_clean)[:, 1]
+        p_lgb_folds[:, fold] = lgb.predict_proba(X_test_encoded)[:, 1]
+        p_xgb_folds[:, fold] = xgb.predict_proba(X_test_encoded)[:, 1]
+        p_cat_folds[:, fold] = cat.predict_proba(X_test_encoded)[:, 1]
 
     # Average predictions across folds for each model
     p_lgb_mean = np.mean(p_lgb_folds, axis=1)

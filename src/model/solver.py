@@ -62,8 +62,60 @@ CAT_PARAMS = {
 }
 
 
+class ValueLevelTargetEncoder:
+    """
+    Out-of-Fold (OOF) Value-Level Target Encoder with Bayesian/Laplace Smoothing.
+    Prevents target leakage using an inner Stratified K-Fold on training splits.
+    """
+    def __init__(self, smoothing: float = 10.0, inner_splits: int = 5, random_state: int = 42):
+        self.smoothing = smoothing
+        self.inner_splits = inner_splits
+        self.random_state = random_state
+        self.mappings_ = {}
+        self.global_priors_ = {}
+
+    def fit_transform(self, X: pd.DataFrame, y: pd.Series, cols: list) -> pd.DataFrame:
+        X_out = X.copy()
+        self.global_priors_ = {c: y.mean() for c in cols}
+        self.mappings_ = {c: {} for c in cols}
+
+        skf = StratifiedKFold(n_splits=self.inner_splits, shuffle=True, random_state=self.random_state)
+
+        for col in cols:
+            oof_vals = np.full(len(X), self.global_priors_[col])
+
+            # Inner fold loop to compute leak-free OOF training representations
+            for train_idx, val_idx in skf.split(X, y):
+                X_tr, y_tr = X.iloc[train_idx], y.iloc[train_idx]
+                stats = y_tr.groupby(X_tr[col])
+                counts = stats.count()
+                sums = stats.sum()
+
+                smoothed = (sums + self.smoothing * self.global_priors_[col]) / (counts + self.smoothing)
+                oof_vals[val_idx] = X.iloc[val_idx][col].map(smoothed).fillna(self.global_priors_[col]).values
+
+            X_out[f"te_{col}"] = oof_vals
+
+            # Compute full mapping on all data for test-set transform phase
+            stats_full = y.groupby(X[col])
+            counts_full = stats_full.count()
+            sums_full = stats_full.sum()
+            smoothed_full = (sums_full + self.smoothing * self.global_priors_[col]) / (counts_full + self.smoothing)
+            self.mappings_[col] = smoothed_full.to_dict()
+
+        return X_out
+
+    def transform(self, X: pd.DataFrame, cols: list) -> pd.DataFrame:
+        X_out = X.copy()
+        for col in cols:
+            prior = self.global_priors_.get(col, 0.5)
+            mapping = self.mappings_.get(col, {})
+            X_out[f"te_{col}"] = X[col].map(mapping).fillna(prior)
+        return X_out
+
 class CompetitionSolver:
-    def __init__(self, n_splits: int = 10, random_state: int = 42):
+    def __init__(self, n_splits: int = 10, random_state: int = 42, te_smoothing: float = 10.0):
+        self.te_smoothing = te_smoothing
         self.n_splits = n_splits
         self.random_state = random_state
         self.estimators = {}
@@ -100,6 +152,11 @@ class CompetitionSolver:
 
             # 1.5 Categorical cols for encoding
             cat_cols = X_train_clean.select_dtypes(exclude=[np.number]).columns
+            categorical_and_grid_features = list(cat_cols)
+
+            encoder = ValueLevelTargetEncoder(smoothing=self.te_smoothing)
+            X_train_encoded = encoder.fit_transform(X_train_clean, y_train, cols=categorical_and_grid_features)
+            X_val_encoded = encoder.transform(X_val_clean, cols=categorical_and_grid_features)
 
             # No imputation! GBDTs handle NaNs natively.
             imputation_medians = {}
@@ -110,11 +167,11 @@ class CompetitionSolver:
             for col in cat_cols:
                 le = LabelEncoder()
                 # To be absolutely safe from np.nan or pd.NA making it into astype(str) which pd.Series leaves as floats sometimes:
-                train_series = X_train_clean[col].fillna('Missing').astype(str)
-                val_series = X_val_clean[col].fillna('Missing').astype(str)
+                train_series = X_train_encoded[col].fillna('Missing').astype(str)
+                val_series = X_val_encoded[col].fillna('Missing').astype(str)
 
                 # Fit only on training fold!
-                X_train_clean[col] = le.fit_transform(train_series)
+                X_train_encoded[col] = le.fit_transform(train_series)
 
                 # Transform validation fold (handle unseen labels safely)
                 # Convert to plain list to avoid numpy string array mixing
@@ -123,12 +180,13 @@ class CompetitionSolver:
                 if missing_classes:
                     # add missing classes to le.classes_
                     le.classes_ = np.append(le.classes_, list(missing_classes))
-                X_val_clean[col] = le.transform(val_series)
+                X_val_encoded[col] = le.transform(val_series)
 
                 encoders[col] = le
 
             self.fold_encoders.append({
                 'encoders': encoders,
+                'target_encoder': encoder,
                 'imputation_medians': imputation_medians,
                 'imputation_modes': imputation_modes
             })
@@ -140,14 +198,14 @@ class CompetitionSolver:
             cat = CatBoostClassifier(**CAT_PARAMS)
 
             # Train models
-            lgb.fit(X_train_clean, y_train)
-            xgb.fit(X_train_clean, y_train)
-            cat.fit(X_train_clean, y_train)
+            lgb.fit(X_train_encoded, y_train)
+            xgb.fit(X_train_encoded, y_train)
+            cat.fit(X_train_encoded, y_train)
 
             # Predict probabilities
-            p_lgb = lgb.predict_proba(X_val_clean)[:, 1]
-            p_xgb = xgb.predict_proba(X_val_clean)[:, 1]
-            p_cat = cat.predict_proba(X_val_clean)[:, 1]
+            p_lgb = lgb.predict_proba(X_val_encoded)[:, 1]
+            p_xgb = xgb.predict_proba(X_val_encoded)[:, 1]
+            p_cat = cat.predict_proba(X_val_encoded)[:, 1]
 
             # Simple blending (Average) for baseline info
             blend_preds = (p_lgb + p_xgb + p_cat) / 3.0
