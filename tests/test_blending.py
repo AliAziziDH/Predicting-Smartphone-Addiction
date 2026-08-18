@@ -1,3 +1,13 @@
+import os
+import sys
+
+# Dynamic path resolution to handle running from subfolders or root
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+if os.path.basename(ROOT_DIR) in ["src", "tests"]:
+    ROOT_DIR = os.path.dirname(ROOT_DIR)
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
 import pytest
 import numpy as np
 import pandas as pd
