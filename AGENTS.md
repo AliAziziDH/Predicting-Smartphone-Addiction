@@ -68,3 +68,15 @@ deterministic pass/fail check.
   explicit human-in-the-loop review.
 - **Mentions Only:** Jules only responds to review comments that explicitly
   mention `@jules` to preserve token quotas.
+
+---
+
+## 🧬 Multi-Agent Evolutionary Feature Discovery & Wave 2 Heuristics
+- **Automated Feature Explorer (`src/llm_feature_explorer.py`):** Operates on a Two-Stage Promotion Gate:
+  1. **Stage 1 (Fast Sandbox Screening):** 15k proxy samples, 3-Fold Stratified CV, and Gauss-Rank Stacking in <5s.
+  2. **Stage 2 (Full Promotion):** Complete 10-Fold OOF CV before permanent commit into `src/model/formulation.py`.
+- **Wave 2 Mathematical Formulations:**
+  1. **Joint Profile Frequency (`joint_profile_freq`):** Scale-invariant `normalize=True` density for `gender + '_' + stress_level + '_' + academic_work_impact`.
+  2. **Nonlinear Risk Boundary Distance:** `np.abs(daily_screen_time_hours - 5.5) * (social + gaming) / (24 - sleep_hours)`.
+  3. **Group-Normalized Cohort Residuals:** `social_media_hours - groupby(['age', 'gender'])['social_media_hours'].transform('mean')`.
+- **Native MCP Directives:** Utilize `google-compute-engine` and `bigquery` for cloud compute, and `notebooks` / `sequential-thinking` for logic and synthesis.

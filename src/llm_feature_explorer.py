@@ -28,41 +28,63 @@ from src.train import resolve_data_path
 # --- Mathematical Candidate Feature Generators (Frontier Hypotheses) ---
 CANDIDATE_STRATEGIES = [
     {
-        "name": "power_law_screen_sleep",
-        "description": "Non-linear power law of screen time scaled inversely by sleep hours",
+        "name": "joint_profile_frequency",
+        "description": "Higher-order joint categorical density frequency (gender + stress + academic)",
         "code": """
 def add_new_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    # Power-law screen strain
-    df['screen_sleep_power'] = (df['daily_screen_time_hours'] ** 1.5) / (df['sleep_hours'] + 1.0)
-    # Log-density notification pressure
-    df['log_notif_density'] = np.log1p(df['notifications_per_day']) / (df['daily_screen_time_hours'] + 0.5)
+    joint_key = df['gender'].astype(str) + '_' + df['stress_level'].astype(str) + '_' + df['academic_work_impact'].astype(str)
+    freq_map = joint_key.value_counts(normalize=True).to_dict()
+    df['joint_profile_freq'] = joint_key.map(freq_map)
     return df
 """
     },
     {
-        "name": "geometric_social_gaming",
-        "description": "Geometric mean synergy between social media and gaming hours",
+        "name": "risk_boundary_distance",
+        "description": "Nonlinear distance from 5.5h screen time risk transition weighted by waking hours",
         "code": """
 def add_new_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    # Geometric mean synergy
-    df['social_gaming_geom'] = np.sqrt(df['social_media_hours'] * df['gaming_hours'] + 1e-5)
-    # Academic impairment screen weight
-    academic_binary = (df['academic_work_impact'] == 'Yes').astype(float)
-    df['academic_screen_pressure'] = academic_binary * df['daily_screen_time_hours']
+    waking_hours = np.maximum(1.0, 24.0 - df['sleep_hours'])
+    leisure_ratio = (df['social_media_hours'] + df['gaming_hours'] + 1e-4) / (waking_hours + 1e-4)
+    df['risk_boundary_dist'] = np.abs(df['daily_screen_time_hours'] - 5.5) * leisure_ratio
     return df
 """
     },
     {
-        "name": "compounded_compulsion_index",
-        "description": "Log notification rate multiplied by app open velocity",
+        "name": "group_normalized_residuals",
+        "description": "Cohort deviation of social media and app opens from [age, gender] means",
         "code": """
 def add_new_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    # Log notification rate
-    log_notif = np.log1p(df['notifications_per_day'])
-    df['compulsion_burst_index'] = log_notif * np.log1p(df['app_opens_per_day']) / (df['sleep_hours'] + 1.0)
+    social_mean = df.groupby(['age', 'gender'])['social_media_hours'].transform('mean')
+    df['social_media_deviation'] = df['social_media_hours'] - social_mean
+    opens_mean = df.groupby(['age', 'gender'])['app_opens_per_day'].transform('mean')
+    df['app_opens_deviation'] = df['app_opens_per_day'] - opens_mean
+    return df
+"""
+    },
+    {
+        "name": "wave2_combined_trio",
+        "description": "Combination of all 3 Wave 2 non-linear signals simultaneously",
+        "code": """
+def add_new_features(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    # 1. Joint Frequency
+    joint_key = df['gender'].astype(str) + '_' + df['stress_level'].astype(str) + '_' + df['academic_work_impact'].astype(str)
+    freq_map = joint_key.value_counts(normalize=True).to_dict()
+    df['joint_profile_freq'] = joint_key.map(freq_map)
+    
+    # 2. Risk Boundary Distance
+    waking_hours = np.maximum(1.0, 24.0 - df['sleep_hours'])
+    leisure_ratio = (df['social_media_hours'] + df['gaming_hours'] + 1e-4) / (waking_hours + 1e-4)
+    df['risk_boundary_dist'] = np.abs(df['daily_screen_time_hours'] - 5.5) * leisure_ratio
+    
+    # 3. Group Normalized Deviations
+    social_mean = df.groupby(['age', 'gender'])['social_media_hours'].transform('mean')
+    df['social_media_deviation'] = df['social_media_hours'] - social_mean
+    opens_mean = df.groupby(['age', 'gender'])['app_opens_per_day'].transform('mean')
+    df['app_opens_deviation'] = df['app_opens_per_day'] - opens_mean
     return df
 """
     }
