@@ -24,13 +24,13 @@ except NameError:
     ROOT_DIR = os.getcwd()
 
 from src.model.formulation import preprocess_and_engineer
-from src.model.solver import CompetitionSolver, to_gauss_rank, LogisticStacker
+from src.model.solver import CompetitionSolver, to_gauss_rank, NelderMeadRankStacker
 from src.train import resolve_data_path
 
 
 def run_cloud_pipeline(n_splits: int = 10, auto_submit: bool = True):
     print("=" * 70)
-    print("🌐 GOOGLE CLOUD FULL ENSEMBLE PIPELINE (WAVE 5 PRODUCTION ENGINE)")
+    print("🌐 FULL ENSEMBLE PRODUCTION PIPELINE (WAVE 6 NELDER-MEAD STACKING)")
     print("=" * 70)
 
     start_time = time.time()
@@ -60,8 +60,8 @@ def run_cloud_pipeline(n_splits: int = 10, auto_submit: bool = True):
     print(f"Engineered Features: {X_train_clean.shape[1]} columns. RAM footprint: {X_train_clean.memory_usage().sum() / 1e6:.1f} MB")
 
     # 3. Solver & 10-Fold Cross-Validation
-    print(f"\n🚀 Engaging {n_splits}-Fold Cross-Validation with Optuna Hyperparameters & FM...")
-    solver = CompetitionSolver(n_splits=n_splits, random_state=42, use_neural_net=True)
+    print(f"\n🚀 Engaging {n_splits}-Fold Cross-Validation with GBDT Models...")
+    solver = CompetitionSolver(n_splits=n_splits, random_state=42, use_neural_net=False)
 
     oof_matrix, mean_auc = solver.cross_validate(X_train_clean, y)
 
@@ -71,18 +71,17 @@ def run_cloud_pipeline(n_splits: int = 10, auto_submit: bool = True):
     for i in range(num_models):
         preds = oof_matrix[:, i]
         percentiles = (scipy.stats.rankdata(preds) - 0.5) / len(preds)
-        rank_oof[:, i] = to_gauss_rank(percentiles)
+        rank_oof[:, i] = percentiles
 
-    print("\n🧠 Fitting Nested Logistic Stacker on Gauss-Rank Percentiles...")
-    stacker = LogisticStacker(C=0.03, random_state=42)
+    print("\n🧠 Fitting Direct Nelder-Mead Rank-AUC Stacker...")
+    stacker = NelderMeadRankStacker(random_state=42)
     stacker.fit(rank_oof, y.values)
     stacked_oof_preds = stacker.predict_proba(rank_oof)
     stacked_auc = roc_auc_score(y.values, stacked_oof_preds)
 
     print("=" * 70)
     print(f"🏆 OFFICIAL OUT-OF-FOLD (OOF) ROC-AUC SCORE: {stacked_auc:.5f}")
-    print(f"Stacker Coefficients: {stacker.coef_}")
-    print(f"Stacker Intercept:    {stacker.intercept_:.5f}")
+    print(f"Optimized Model Weights: {stacker.weights_}")
     print("=" * 70)
 
     # 5. Out-of-Fold Test Inference
@@ -116,12 +115,12 @@ def run_cloud_pipeline(n_splits: int = 10, auto_submit: bool = True):
             p_nn = models_dict['nn'].predict_proba(X_test_fold)[:, 1]
             test_preds_matrix[:, 3] += p_nn / n_splits
 
-    # Gauss-rank test matrix
+    # Rank test matrix
     rank_test = np.zeros_like(test_preds_matrix)
     for i in range(num_models):
         preds = test_preds_matrix[:, i]
         percentiles = (scipy.stats.rankdata(preds) - 0.5) / len(preds)
-        rank_test[:, i] = to_gauss_rank(percentiles)
+        rank_test[:, i] = percentiles
 
     final_test_preds = stacker.predict_proba(rank_test)
 
@@ -147,7 +146,7 @@ def run_cloud_pipeline(n_splits: int = 10, auto_submit: bool = True):
             "kaggle", "competitions", "submit",
             "-c", "playground-series-s6e8",
             "-f", sub_path,
-            "-m", f"V10 Cloud: 10-Fold Ensemble (Optuna Tuned + FM + Target Enc) OOF={stacked_auc:.5f}"
+            "-m", f"V11 Wave 6: 10-Fold 36-Feature Ensemble + Nelder-Mead Rank-AUC Stacking OOF={stacked_auc:.5f}"
         ], capture_output=True, text=True)
         print(res.stdout, flush=True)
         if res.stderr:

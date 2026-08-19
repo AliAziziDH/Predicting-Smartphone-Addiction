@@ -18,18 +18,18 @@ from src.model.formulation import preprocess_and_engineer
 from src.model.neural_tabular import DeepTabularClassifier
 
 
-# Highly calibrated, deep-capacity GBDT configurations for synthetic grid boundaries
+# Highly calibrated, regularized GBDT configurations for synthetic tabular manifolds
 LGBM_PARAMS = {
     "objective": "binary",
     "metric": "auc",
     "boosting_type": "gbdt",
     "n_estimators": 3000,
     "learning_rate": 0.015,
-    "num_leaves": 255,
+    "num_leaves": 127,
     "max_depth": -1,
-    "min_child_samples": 100,
+    "min_child_samples": 250,
     "subsample": 0.8,
-    "colsample_bytree": 0.8,
+    "colsample_bytree": 0.7,
     "reg_alpha": 0.5,
     "reg_lambda": 2.0,
     "random_state": 42,
@@ -42,12 +42,12 @@ XGB_PARAMS = {
     "eval_metric": "auc",
     "n_estimators": 3000,
     "learning_rate": 0.015,
-    "max_depth": 8,
-    "min_child_weight": 5,
+    "max_depth": 7,
+    "min_child_weight": 15,
     "subsample": 0.8,
-    "colsample_bytree": 0.8,
+    "colsample_bytree": 0.75,
     "reg_alpha": 0.5,
-    "reg_lambda": 2.0,
+    "reg_lambda": 5.0,
     "random_state": 42,
     "tree_method": "hist",
     "n_jobs": -1
@@ -58,8 +58,8 @@ CAT_PARAMS = {
     "eval_metric": "AUC",
     "iterations": 3000,
     "learning_rate": 0.02,
-    "depth": 8,
-    "l2_leaf_reg": 5,
+    "depth": 7,
+    "l2_leaf_reg": 5.0,
     "bootstrap_type": "Bernoulli",
     "subsample": 0.8,
     "random_state": 42,
@@ -312,6 +312,47 @@ def perform_ks_drift_screen(oof_rank: np.ndarray, test_rank: np.ndarray, thresho
     return passed, float(stat)
 
 
+class NelderMeadRankStacker:
+    """
+    Direct Non-Parametric Nelder-Mead Rank-AUC Optimizer.
+    Finds non-negative weights that directly maximize the ROC-AUC rank metric
+    on out-of-fold probability matrices, eliminating calibration distortions.
+    """
+    def __init__(self, random_state: int = 42):
+        self.random_state = random_state
+        self.weights_ = None
+
+    def _objective(self, unconstrained_weights: np.ndarray, preds_matrix: np.ndarray, y: np.ndarray) -> float:
+        # Softmax projection ensures non-negativity and sum(w) = 1.0
+        exp_w = np.exp(unconstrained_weights - np.max(unconstrained_weights))
+        weights = exp_w / np.sum(exp_w)
+        
+        # Weighted rank blend
+        blended = np.dot(preds_matrix, weights)
+        return -roc_auc_score(y, blended)
+
+    def fit(self, preds_matrix: np.ndarray, y: np.ndarray):
+        n_models = preds_matrix.shape[1]
+        init_weights = np.zeros(n_models)
+
+        res = minimize(
+            self._objective,
+            x0=init_weights,
+            args=(preds_matrix, y),
+            method='Nelder-Mead',
+            options={'maxiter': 500, 'xatol': 1e-4, 'fatol': 1e-5}
+        )
+
+        exp_w = np.exp(res.x - np.max(res.x))
+        self.weights_ = exp_w / np.sum(exp_w)
+        return self
+
+    def predict_proba(self, preds_matrix: np.ndarray) -> np.ndarray:
+        if self.weights_ is None:
+            raise ValueError("NelderMeadRankStacker is not fitted yet.")
+        return np.dot(preds_matrix, self.weights_)
+
+
 class EnsembleBlender:
     """Legacy SLSQP Bounded Blender."""
     def __init__(self):
@@ -338,3 +379,4 @@ class EnsembleBlender:
         )
         self.weights_ = result.x
         return self.weights_
+

@@ -1,21 +1,19 @@
 """
-Wave 4: Autonomous Multi-Generation Feature Discovery Engine with Live Claude (Model Proxy).
-Directly queries anthropic/claude-sonnet-5@default with Extended Thinking via Kaggle Model Proxy,
+Wave 4/5: Autonomous Multi-Generation Feature Discovery Engine powered by Google AI Studio (Gemini 3.1 Pro).
+Directly leverages flagship Gemini 3.1 Pro via StudioEngine,
 evaluates proposals in <5s on 15k proxy rows with Gauss-Rank Stacking,
-and tracks exact token costs in nanodollars.
+and logs exact token economy and feature promotion gates.
 """
 
 import os
 import sys
 import time
 import json
-import requests
-import dotenv
 import numpy as np
 import pandas as pd
 from typing import Dict, List, Any, Tuple, Optional
 from sklearn.metrics import roc_auc_score
-from scipy.stats import rankdata, norm
+from scipy.stats import rankdata
 
 try:
     ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -26,55 +24,30 @@ except NameError:
 
 from src.model.formulation import preprocess_and_engineer
 from src.model.solver import CompetitionSolver, to_gauss_rank, LogisticStacker
+from src.studio_engine import get_studio_engine, StudioEngine
 from src.train import resolve_data_path
 
 
-class TokenExpenseTracker:
-    """Tracks live token consumption and costs in nanodollars."""
-    def __init__(self, cost_per_m_input: float = 3.0, cost_per_m_output: float = 15.0):
-        self.cost_per_m_input = cost_per_m_input
-        self.cost_per_m_output = cost_per_m_output
-        self.total_input_tokens = 0
-        self.total_output_tokens = 0
-        self.total_nanodollars = 0.0
-
-    def log_call(self, input_tokens: int, output_tokens: int) -> float:
-        self.total_input_tokens += input_tokens
-        self.total_output_tokens += output_tokens
-        input_cost_nano = (input_tokens / 1_000_000.0) * self.cost_per_m_input * 1e9
-        output_cost_nano = (output_tokens / 1_000_000.0) * self.cost_per_m_output * 1e9
-        call_cost = input_cost_nano + output_cost_nano
-        self.total_nanodollars += call_cost
-        return call_cost
-
-    def get_summary_str(self) -> str:
-        cost_usd = self.total_nanodollars / 1e9
-        return (
-            f"Input Tokens: {self.total_input_tokens:,} | Output Tokens: {self.total_output_tokens:,} | "
-            f"Total Cost: {self.total_nanodollars:,.0f} n$ (${cost_usd:.6f} USD)"
-        )
-
-
-def query_claude_for_candidates(
+def query_studio_for_candidates(
     generation: int,
     current_best_auc: float,
     failed_candidates: List[Dict[str, Any]],
     winning_candidates: List[Dict[str, Any]],
-    tracker: TokenExpenseTracker
+    engine: StudioEngine,
 ) -> List[Dict[str, str]]:
     """
-    Directly queries Claude via the live Kaggle Model Proxy API.
+    Directly queries Gemini 3.1 Pro via StudioEngine for high-yield mathematical feature candidates.
     """
-    dotenv.load_dotenv()
-    api_key = os.environ.get('MODEL_PROXY_API_KEY')
-    headers = {'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'}
-    url = "https://mp-staging.kaggle.net/models/anthropic/claude-sonnet-5@default"
-
     failed_summary = "\n".join([f"- {f['name']} (Δ = {f['delta']:+.5f}): {f['description']}" for f in failed_candidates[-4:]]) or "None yet."
     winning_summary = "\n".join([f"- {w['name']} (AUC = {w['auc']:.5f}): {w['description']}" for w in winning_candidates]) or "Baseline (productive_work_shield, work_adjusted_screen_load, unaccounted_hours) -> AUC: 0.93437"
 
-    prompt = f"""You are Claude, Principal AI Decision Intelligence & Kaggle Grandmaster.
-We are optimizing Out-of-Fold ROC-AUC for Kaggle Playground S6E8 (Smartphone Addiction).
+    system_instruction = (
+        "You are Principal AI Decision Intelligence Architect & Kaggle Grandmaster.\n"
+        "Your task is to design novel non-linear, ratio-based, and interaction features for Tabular GBDT.\n"
+        "You MUST return valid JSON containing a list of feature candidate functions."
+    )
+
+    prompt = f"""We are optimizing Out-of-Fold ROC-AUC for Kaggle Playground S6E8 (Smartphone Addiction).
 Current Best Proxy OOF AUC: {current_best_auc:.5f}
 
 --- WINNING FEATURE COMBINATIONS ---
@@ -83,16 +56,20 @@ Current Best Proxy OOF AUC: {current_best_auc:.5f}
 --- FAILED RECENT EXPERIMENTS (AVOID THESE TRAPS) ---
 {failed_summary}
 
---- AVAILABLE BASE COLUMNS ---
-age, gender, daily_screen_time_hours, sleep_hours, social_media_hours, gaming_hours, work_study_hours, app_opens_per_day, notifications_per_day, weekend_screen_time, stress_level, academic_work_impact, other_screen, unaccounted_hours, productive_work_ratio, work_adjusted_screen_load.
+--- AVAILABLE BASE COLUMNS & TYPES ---
+- Numeric: age (int), daily_screen_time_hours (float), sleep_hours (float), social_media_hours (float), gaming_hours (float), work_study_hours (float), app_opens_per_day (float), notifications_per_day (float), weekend_screen_time (float), other_screen (float), unaccounted_hours (float), productive_work_ratio (float), work_adjusted_screen_load (float)
+- Categorical/String: gender ('Male'/'Female'), stress_level ('Low'/'Medium'/'High'), academic_work_impact ('No'/'Yes')
+NOTE: If using stress_level or academic_work_impact in math, map them first e.g.:
+`stress_map = {'Low': 1, 'Medium': 2, 'High': 3}; s = df['stress_level'].map(stress_map).fillna(2)`
 
 REQUIREMENTS:
 1. Propose exactly 3 innovative, non-linear Python feature engineering functions.
 2. Avoid simple monotonic powers or linear sums that GBDT trees already learn.
 3. Target:
    - Compulsive frequency densities (e.g. notifications per awake minute)
-   - Cross-cohort ratios (e.g. gaming vs productive ratio)
-   - Sleep debt interaction penalties
+   - Cross-cohort residuals (e.g. gaming vs group-normalized productive ratio)
+   - Sleep debt and circadian disruption interaction penalties
+   - Boundary distance non-linear transforms (e.g. |screen_time - 5.5| / awake_time)
 4. Output MUST be strictly valid JSON without preamble:
 {{
   "candidates": [
@@ -104,37 +81,19 @@ REQUIREMENTS:
   ]
 }}"""
 
-    payload = {
-        "model": "anthropic/claude-sonnet-5@default",
-        "messages": [{"role": "user", "content": prompt}]
-    }
-
     try:
-        r = requests.post(url, json=payload, headers=headers, timeout=60)
-        if r.status_code != 200:
-            print(f"⚠️ Claude API returned {r.status_code}: {r.text[:150]}")
-            return []
-
-        res = r.json()
-        usage = res.get("usage", {})
-        in_tok = usage.get("input_tokens", 850)
-        out_tok = usage.get("output_tokens", 600)
-        call_cost = tracker.log_call(in_tok, out_tok)
-        print(f"🤖 Claude Live Call (Gen {generation}): {in_tok} In / {out_tok} Out ({call_cost:,.0f} n$)")
-
-        raw_text = "".join([b.get("text", "") for b in res.get("content", []) if b.get("type") == "text"])
-        
-        # Clean JSON markdown fences
-        clean_json = raw_text.strip()
-        if "```json" in clean_json:
-            clean_json = clean_json.split("```json")[1].split("```")[0]
-        elif "```" in clean_json:
-            clean_json = clean_json.split("```")[1].split("```")[0]
-
-        parsed = json.loads(clean_json.strip())
-        return parsed.get("candidates", [])
+        parsed = engine.generate_json(
+            prompt=prompt,
+            system_instruction=system_instruction,
+            temperature=0.2
+        )
+        if isinstance(parsed, dict) and "candidates" in parsed:
+            return parsed["candidates"]
+        elif isinstance(parsed, list):
+            return parsed
+        return []
     except Exception as e:
-        print(f"⚠️ Failed to query/parse Claude: {e}")
+        print(f"⚠️ [FeatureExplorer] Studio query error: {e}")
         return []
 
 
@@ -145,11 +104,13 @@ def evaluate_feature_candidate(
     n_splits: int = 3
 ) -> float:
     """Fast-Screening Sandbox Gate: Evaluates candidate code in <5 seconds."""
-    df_sample = df.sample(n=proxy_sample, random_state=42).reset_index(drop=True)
+    df_sample = df.sample(n=min(proxy_sample, len(df)), random_state=42).reset_index(drop=True)
 
     local_scope: Dict[str, Any] = {"pd": pd, "np": np}
     exec(feature_code, local_scope)
-    add_new_features_fn = local_scope["add_new_features"]
+    add_new_features_fn = local_scope.get("add_new_features")
+    if not add_new_features_fn:
+        raise ValueError("Candidate code does not define `add_new_features` function.")
 
     X_base = preprocess_and_engineer(df_sample)
     X_cand = add_new_features_fn(X_base.copy())
@@ -158,7 +119,7 @@ def evaluate_feature_candidate(
     y = df_sample[target_col]
     X_cand = X_cand.drop(columns=["id", target_col], errors="ignore")
 
-    solver = CompetitionSolver(n_splits=n_splits, random_state=42, use_neural_net=True, n_estimators=60)
+    solver = CompetitionSolver(n_splits=n_splits, random_state=42, use_neural_net=False, n_estimators=50)
     oof_matrix, _ = solver.cross_validate(X_cand, y)
 
     rank_matrix = np.zeros_like(oof_matrix)
@@ -174,24 +135,24 @@ def evaluate_feature_candidate(
     return score
 
 
-def run_evolutionary_search(n_generations: int = 3, proxy_sample: int = 15000):
+def run_evolutionary_search(n_generations: int = 2, proxy_sample: int = 15000):
     print("=" * 70)
-    print("🧬 LIVE AUTONOMOUS MULTI-GENERATION FEATURE SEARCH (CLAUDE OPUS)")
+    print("🧬 AUTONOMOUS FEATURE SEARCH ENGINE (GOOGLE AI STUDIO - GEMINI 3.1 PRO)")
     print("=" * 70)
 
     train_path = resolve_data_path("train.csv")
     df = pd.read_csv(train_path)
 
-    tracker = TokenExpenseTracker()
+    engine = get_studio_engine()
 
     # 1. Baseline Evaluation
     print("\n[Generation 0: Baseline] Evaluating Current Feature Space...")
-    df_sample = df.sample(n=proxy_sample, random_state=42).reset_index(drop=True)
+    df_sample = df.sample(n=min(proxy_sample, len(df)), random_state=42).reset_index(drop=True)
     target_col = "addicted_label"
     y_base = df_sample[target_col]
     X_base = df_sample.drop(columns=["id", target_col], errors="ignore")
 
-    solver_base = CompetitionSolver(n_splits=3, random_state=42, use_neural_net=True, n_estimators=60)
+    solver_base = CompetitionSolver(n_splits=3, random_state=42, use_neural_net=False, n_estimators=50)
     oof_base, _ = solver_base.cross_validate(X_base, y_base)
 
     rank_base = np.zeros_like(oof_base)
@@ -212,16 +173,16 @@ def run_evolutionary_search(n_generations: int = 3, proxy_sample: int = 15000):
     for gen in range(1, n_generations + 1):
         print(f"\n{'='*25} GENERATION {gen}/{n_generations} {'='*25}")
 
-        candidates = query_claude_for_candidates(
+        candidates = query_studio_for_candidates(
             generation=gen,
             current_best_auc=current_best_auc,
             failed_candidates=failed_features,
             winning_candidates=winning_features,
-            tracker=tracker
+            engine=engine,
         )
 
         if not candidates:
-            print("  ⚠️ No candidates received from Claude in this round.")
+            print("  ⚠️ No candidates received from Google AI Studio in this round.")
             continue
 
         gen_best_cand = None
@@ -230,7 +191,7 @@ def run_evolutionary_search(n_generations: int = 3, proxy_sample: int = 15000):
         for cand in candidates:
             cand_name = cand.get("name", "unknown")
             desc = cand.get("description", "")
-            print(f"  🔬 Testing Live Proposal: [{cand_name}] - {desc}...")
+            print(f"  🔬 Testing AI Studio Proposal: [{cand_name}] - {desc}...")
             start_t = time.time()
             try:
                 score = evaluate_feature_candidate(cand["code"], df, proxy_sample=proxy_sample, n_splits=3)
@@ -267,18 +228,25 @@ def run_evolutionary_search(n_generations: int = 3, proxy_sample: int = 15000):
                 "name": gen_best_cand["name"],
                 "description": gen_best_cand.get("description", ""),
                 "auc": gen_best_auc,
-                "delta": gen_best_auc - baseline_auc
+                "delta": gen_best_auc - baseline_auc,
+                "code": gen_best_cand.get("code", "")
             })
         else:
             print(f"\n  ℹ️ Generation {gen}: No candidate cleared promotion threshold. Baseline retained.")
 
     print("\n" + "=" * 70)
-    print("🏁 LIVE EVOLUTIONARY TOURNAMENT SUMMARY & ECONOMY REPORT")
+    print("🏁 LIVE EVOLUTIONARY TOURNAMENT SUMMARY & GOOGLE AI STUDIO REPORT")
     print("=" * 70)
     print(f"📊 Initial Baseline AUC: {baseline_auc:.5f}")
     print(f"🏆 Final Best AUC:       {current_best_auc:.5f} (Total Uplift: {current_best_auc - baseline_auc:+.5f})")
-    print(f"💰 Token Economy:        {tracker.get_summary_str()}")
+    print(f"\n{engine.get_usage_summary()}")
     print("=" * 70)
+
+    return {
+        "baseline_auc": baseline_auc,
+        "best_auc": current_best_auc,
+        "winning_features": winning_features
+    }
 
 
 if __name__ == "__main__":

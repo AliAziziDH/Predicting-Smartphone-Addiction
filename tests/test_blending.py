@@ -90,4 +90,32 @@ def test_rank_blending_auc_improvement(mock_predictions):
     optimized_preds = np.dot(rank_matrix, weights)
     optimized_auc = roc_auc_score(y, optimized_preds)
 
-    assert optimized_auc >= best_baseline_auc - 1e-6,         f"Optimized AUC ({optimized_auc:.6f}) is worse than best baseline ({best_baseline_auc:.6f})"
+    assert optimized_auc >= best_baseline_auc - 1e-6, f"Optimized AUC ({optimized_auc:.6f}) is worse than best baseline ({best_baseline_auc:.6f})"
+
+
+def test_nelder_mead_rank_stacker(mock_predictions):
+    from src.model.solver import NelderMeadRankStacker
+    import scipy.stats
+
+    preds_matrix, y = mock_predictions
+    rank_matrix = np.zeros_like(preds_matrix)
+    for i in range(preds_matrix.shape[1]):
+        rank_matrix[:, i] = (scipy.stats.rankdata(preds_matrix[:, i]) - 0.5) / len(preds_matrix)
+
+    stacker = NelderMeadRankStacker(random_state=42)
+    stacker.fit(rank_matrix, y)
+
+    assert stacker.weights_ is not None
+    assert np.all(stacker.weights_ >= 0.0)
+    assert np.isclose(np.sum(stacker.weights_), 1.0, atol=1e-4)
+
+    blended_probs = stacker.predict_proba(rank_matrix)
+    stacker_auc = roc_auc_score(y, blended_probs)
+
+    auc_lgb = roc_auc_score(y, rank_matrix[:, 0])
+    auc_xgb = roc_auc_score(y, rank_matrix[:, 1])
+    auc_cat = roc_auc_score(y, rank_matrix[:, 2])
+    best_single_auc = max(auc_lgb, auc_xgb, auc_cat)
+
+    assert stacker_auc >= best_single_auc - 1e-6, f"Nelder-Mead AUC ({stacker_auc:.5f}) should be >= best single model ({best_single_auc:.5f})"
+

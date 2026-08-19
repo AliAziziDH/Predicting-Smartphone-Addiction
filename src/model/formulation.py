@@ -142,10 +142,51 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
         (df_clean['daily_screen_time_hours'] - df_clean['work_study_hours']) / (df_clean['sleep_hours'] + eps)
     )
 
-    # 13. High-Performance Memory Downcasting (reduces RAM from 1.2GB to <300MB on 690k rows)
+    # 13. Compulsive Checking Velocity (internal compulsion intensity)
+    df_clean['compulsive_checking_velocity'] = np.where(
+        np.isnan(df_clean['daily_screen_time_hours']) | np.isnan(df_clean['sleep_hours']),
+        np.nan,
+        (df_clean['notifications_per_day'] / (df_clean['app_opens_per_day'] + 1.0)) * 
+        (df_clean['daily_screen_time_hours'] / np.maximum(eps, 24.0 - df_clean['sleep_hours']))
+    )
+
+    # 14. Circadian Dopamine Strain (polynomial nighttime dopamine penalty)
+    social_gaming = df_clean['social_media_hours'].fillna(0.0) + df_clean['gaming_hours'].fillna(0.0)
+    sleep_def = np.maximum(0.0, 8.0 - df_clean['sleep_hours'].fillna(8.0))
+    df_clean['circadian_dopamine_strain'] = np.where(
+        np.isnan(df_clean['sleep_hours']),
+        np.nan,
+        sleep_def * np.power(np.maximum(0.0, social_gaming), 1.5) / (df_clean['sleep_hours'] + 1.0)
+    )
+
+    # 15. Synthetic Time Budget Deficit & Violation Indicator (captures CTGAN generator artifact)
+    claimed_activities = df_clean['social_media_hours'].fillna(0.0) + df_clean['gaming_hours'].fillna(0.0) + df_clean['work_study_hours'].fillna(0.0)
+    df_clean['synthetic_budget_deficit'] = np.where(
+        np.isnan(df_clean['daily_screen_time_hours']),
+        np.nan,
+        claimed_activities - df_clean['daily_screen_time_hours']
+    )
+    df_clean['synthetic_budget_violation'] = np.where(
+        np.isnan(df_clean['daily_screen_time_hours']),
+        np.nan,
+        (claimed_activities > df_clean['daily_screen_time_hours']).astype(np.float32)
+    )
+
+    # 16. Multi-Way Demographic Joint Profile Frequency
+    if 'gender' in df_clean.columns and 'stress_level' in df_clean.columns and 'academic_work_impact' in df_clean.columns:
+        joint_key = (
+            df_clean['gender'].astype(str) + '_' + 
+            df_clean['stress_level'].astype(str) + '_' + 
+            df_clean['academic_work_impact'].astype(str)
+        )
+        joint_freq_map = joint_key.value_counts(normalize=True).to_dict()
+        df_clean['joint_profile_freq'] = joint_key.map(joint_freq_map).astype(np.float32)
+
+    # 17. High-Performance Memory Downcasting (reduces RAM from 1.2GB to <300MB on 690k rows)
     for col in df_clean.select_dtypes(include=['float64']).columns:
         df_clean[col] = df_clean[col].astype(np.float32)
     for col in df_clean.select_dtypes(include=['int64']).columns:
         df_clean[col] = pd.to_numeric(df_clean[col], downcast='integer')
 
     return df_clean
+
