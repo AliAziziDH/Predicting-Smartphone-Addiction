@@ -88,6 +88,10 @@ def main():
 
         fold_artifacts = fold_encoders[fold]
         encoders = fold_artifacts['encoders']
+        target_encoder = fold_artifacts.get('target_encoder')
+
+        if target_encoder is not None:
+            X_test_clean = target_encoder.transform(X_test_clean)
 
         for col, le in encoders.items():
             if col in X_test_clean.columns:

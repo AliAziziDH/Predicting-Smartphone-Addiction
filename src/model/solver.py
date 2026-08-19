@@ -88,6 +88,59 @@ def get_calibrated_model_params():
     return lgb_p, xgb_p, cat_p
 
 
+class ValueLevelTargetEncoder:
+    """
+    Leak-Free Out-of-Fold Value-Level Target Encoder with Laplace Smoothing (SMOOTH=10.0).
+    Reconstructs continuous likelihood priors over discrete grid categories.
+    """
+    def __init__(self, cols: List[str], smooth: float = 10.0, n_splits: int = 5, random_state: int = 42):
+        self.cols = cols
+        self.smooth = smooth
+        self.n_splits = n_splits
+        self.random_state = random_state
+        self.global_mean = 0.5
+        self.mapping = {}
+
+    def fit_transform(self, X: pd.DataFrame, y: pd.Series) -> pd.DataFrame:
+        X_out = X.copy()
+        self.global_mean = float(y.mean())
+        self.mapping = {}
+
+        # Global mapping for validation / inference
+        for col in self.cols:
+            if col not in X.columns:
+                continue
+            stats = y.groupby(X[col]).agg(['count', 'sum'])
+            col_map = (stats['sum'] + self.smooth * self.global_mean) / (stats['count'] + self.smooth)
+            self.mapping[col] = col_map.to_dict()
+
+        # Internal K-Fold Out-of-Fold encoding for training
+        skf = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state)
+        for col in self.cols:
+            if col not in X.columns:
+                continue
+            oof_col = np.zeros(len(X))
+            for tr_idx, val_idx in skf.split(X, y):
+                X_tr, y_tr = X.iloc[tr_idx], y.iloc[tr_idx]
+                X_vl = X.iloc[val_idx]
+
+                tr_mean = float(y_tr.mean())
+                stats_tr = y_tr.groupby(X_tr[col]).agg(['count', 'sum'])
+                map_tr = ((stats_tr['sum'] + self.smooth * tr_mean) / (stats_tr['count'] + self.smooth)).to_dict()
+                oof_col[val_idx] = X_vl[col].map(map_tr).fillna(tr_mean).values
+
+            X_out[f'{col}_target_enc'] = oof_col
+
+        return X_out
+
+    def transform(self, X: pd.DataFrame) -> pd.DataFrame:
+        X_out = X.copy()
+        for col, col_map in self.mapping.items():
+            if col in X.columns:
+                X_out[f'{col}_target_enc'] = X[col].map(col_map).fillna(self.global_mean).values
+        return X_out
+
+
 class CompetitionSolver:
     def __init__(self, n_splits: int = 10, random_state: int = 42, use_neural_net: bool = True, n_estimators: Optional[int] = None):
         self.n_splits = n_splits
@@ -99,7 +152,8 @@ class CompetitionSolver:
     def cross_validate(self, X: pd.DataFrame, y: pd.Series) -> Tuple[np.ndarray, float]:
         """
         Executes a 10-fold Stratified CV loop targeting 'addicted_label'
-        with strict leak-free local fold preprocessing and 4-way heterogeneous modeling.
+        with strict leak-free local fold preprocessing, Value-Level Target Encoding,
+        and 4-way heterogeneous modeling.
         """
         X = X.reset_index(drop=True)
         y = y.reset_index(drop=True)
@@ -122,10 +176,16 @@ class CompetitionSolver:
             X_train_clean = preprocess_and_engineer(X_train)
             X_val_clean = preprocess_and_engineer(X_val)
 
+            # 2. Out-of-Fold Value-Level Target Encoding with Laplace smoothing
+            te_cols = [c for c in ['gender', 'stress_level', 'academic_work_impact', 'daily_screen_time_hours', 'app_opens_per_day'] if c in X_train_clean.columns]
+            te = ValueLevelTargetEncoder(cols=te_cols, smooth=10.0, n_splits=5, random_state=self.random_state + fold)
+            X_train_clean = te.fit_transform(X_train_clean, y_train)
+            X_val_clean = te.transform(X_val_clean)
+
             # Categorical cols for encoding
             cat_cols = list(X_train_clean.select_dtypes(exclude=[np.number]).columns)
 
-            # 2. Categorical Encoding localized to the fold
+            # 3. Categorical Encoding localized to the fold
             encoders = {}
             for col in cat_cols:
                 le = LabelEncoder()
@@ -144,6 +204,7 @@ class CompetitionSolver:
 
             self.fold_encoders.append({
                 'encoders': encoders,
+                'target_encoder': te,
                 'cat_cols': cat_cols
             })
 
