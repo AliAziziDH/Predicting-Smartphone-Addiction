@@ -5,7 +5,7 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import roc_auc_score
 from sklearn.linear_model import LogisticRegression
-from scipy.stats import ks_2samp
+from scipy.stats import ks_2samp, norm
 from lightgbm import LGBMClassifier
 from xgboost import XGBClassifier
 from catboost import CatBoostClassifier
@@ -195,12 +195,21 @@ class CompetitionSolver:
         return oof_preds_matrix, mean_auc
 
 
+def to_gauss_rank(ranks: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+    """
+    Transforms rank percentiles (0, 1) into standard Gaussian domain using inverse normal CDF (probit).
+    Eliminates scale distortions between tree models (GBDT) and continuous MLP neural nets.
+    """
+    clipped = np.clip(ranks, eps, 1.0 - eps)
+    return norm.ppf(clipped)
+
+
 class LogisticStacker:
     """
-    Nested Logistic Regression Stacker on Rank Percentiles.
-    Learns positive and negative coefficients to cancel out correlated error modes.
+    Nested Logistic Regression Stacker on Gauss-Rank Transformed Percentiles.
+    Regularized at C=0.03 to prevent negative weight overfitting.
     """
-    def __init__(self, C: float = 0.1, random_state: int = 42):
+    def __init__(self, C: float = 0.03, random_state: int = 42):
         self.C = C
         self.random_state = random_state
         self.model = LogisticRegression(C=self.C, max_iter=1000, random_state=self.random_state)

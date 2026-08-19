@@ -17,7 +17,7 @@ import pandas as pd
 import scipy.stats
 import joblib
 from src.model.formulation import preprocess_and_engineer
-from src.model.solver import perform_ks_drift_screen
+from src.model.solver import perform_ks_drift_screen, to_gauss_rank
 
 def resolve_data_path(filename):
     paths_to_check = [
@@ -115,11 +115,12 @@ def main():
     else:
         test_preds_matrix = np.column_stack((p_lgb_mean, p_xgb_mean, p_cat_mean))
 
-    print("Converting test predictions to rank percentiles...")
+    print("Converting test predictions to Gauss-Rank normal percentiles...")
     rank_test = np.zeros_like(test_preds_matrix)
     for i in range(test_preds_matrix.shape[1]):
         preds = test_preds_matrix[:, i]
-        rank_test[:, i] = (scipy.stats.rankdata(preds) - 0.5) / len(preds)
+        percentiles = (scipy.stats.rankdata(preds) - 0.5) / len(preds)
+        rank_test[:, i] = to_gauss_rank(percentiles)
 
     # Kolmogorov-Smirnov Drift Screening
     if oof_ranks is not None:

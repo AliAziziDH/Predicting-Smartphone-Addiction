@@ -17,7 +17,7 @@ import pandas as pd
 import scipy.stats
 import joblib
 from sklearn.metrics import roc_auc_score
-from src.model.solver import CompetitionSolver, LogisticStacker, EnsembleBlender
+from src.model.solver import CompetitionSolver, LogisticStacker, EnsembleBlender, to_gauss_rank
 
 def resolve_data_path(filename):
     paths_to_check = [
@@ -69,14 +69,15 @@ def main():
     print(f"Baseline (Average 4-Way) OOF ROC AUC Score: {mean_auc:.5f}", flush=True)
     print(f"==================================================", flush=True)
 
-    print("Converting OOF predictions to rank percentiles...", flush=True)
+    print("Converting OOF predictions to Gauss-Rank normal percentiles...", flush=True)
     rank_oof = np.zeros_like(oof_preds_matrix)
     for i in range(oof_preds_matrix.shape[1]):
         preds = oof_preds_matrix[:, i]
-        rank_oof[:, i] = (scipy.stats.rankdata(preds) - 0.5) / len(preds)
+        percentiles = (scipy.stats.rankdata(preds) - 0.5) / len(preds)
+        rank_oof[:, i] = to_gauss_rank(percentiles)
 
-    print("Fitting Nested Logistic Stacker on 4-Way Rank Percentiles...", flush=True)
-    stacker = LogisticStacker(C=0.1, random_state=42)
+    print("Fitting Nested Logistic Stacker on 4-Way Gauss-Rank Percentiles...", flush=True)
+    stacker = LogisticStacker(C=0.03, random_state=42)
     stacker.fit(rank_oof, y.values)
 
     stacked_oof_preds = stacker.predict_proba(rank_oof)
