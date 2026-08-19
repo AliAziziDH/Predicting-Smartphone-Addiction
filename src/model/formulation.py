@@ -109,11 +109,11 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
     # 8. Screen‑time proportion of total activity
     df_clean['screen_time_ratio_total'] = df_clean['daily_screen_time_hours'] / (df_clean['total_activity_hours'] + eps)
 
-    # 9. Unsupervised Grid-Frequency / Count Encoding on synthetic rounded features
+    # 9. Unsupervised Grid-Frequency / Relative Density Encoding on synthetic rounded features
     grid_cols = ['app_opens_per_day', 'notifications_per_day', 'daily_screen_time_hours', 'weekend_screen_time', 'age']
     for col in grid_cols:
         if col in df_clean.columns:
-            freq_map = df_clean[col].value_counts(dropna=True).to_dict()
+            freq_map = df_clean[col].value_counts(normalize=True, dropna=True).to_dict()
             df_clean[f'{col}_freq'] = df_clean[col].map(freq_map)
 
     return df_clean

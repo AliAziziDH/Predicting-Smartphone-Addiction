@@ -79,10 +79,12 @@ def main():
     if has_nn:
         p_nn_folds = np.zeros((len(X_test), num_folds))
 
+    print("Engineering base features for test dataset...")
+    X_test_clean_base = preprocess_and_engineer(X_test)
+
     for fold in range(num_folds):
         print(f"Processing Fold {fold + 1}/{num_folds}...")
-
-        X_test_clean = preprocess_and_engineer(X_test)
+        X_test_clean = X_test_clean_base.copy()
 
         fold_artifacts = fold_encoders[fold]
         encoders = fold_artifacts['encoders']
