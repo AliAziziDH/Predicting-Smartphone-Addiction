@@ -28,63 +28,41 @@ from src.train import resolve_data_path
 # --- Mathematical Candidate Feature Generators (Frontier Hypotheses) ---
 CANDIDATE_STRATEGIES = [
     {
-        "name": "joint_profile_frequency",
-        "description": "Higher-order joint categorical density frequency (gender + stress + academic)",
+        "name": "productive_work_shield",
+        "description": "Productive work-study ratio to shield high-screen productive workers from False Positives",
         "code": """
 def add_new_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    joint_key = df['gender'].astype(str) + '_' + df['stress_level'].astype(str) + '_' + df['academic_work_impact'].astype(str)
-    freq_map = joint_key.value_counts(normalize=True).to_dict()
-    df['joint_profile_freq'] = joint_key.map(freq_map)
+    df['productive_work_ratio'] = df['work_study_hours'] / (df['daily_screen_time_hours'] + 0.1)
+    df['work_adjusted_screen_load'] = (df['daily_screen_time_hours'] - df['work_study_hours']) / (df['sleep_hours'] + 0.1)
     return df
 """
     },
     {
-        "name": "risk_boundary_distance",
-        "description": "Nonlinear distance from 5.5h screen time risk transition weighted by waking hours",
+        "name": "compulsive_leisure_strain",
+        "description": "Compulsive leisure strain to catch moderate-screen (5h) compulsive False Negatives",
         "code": """
 def add_new_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    waking_hours = np.maximum(1.0, 24.0 - df['sleep_hours'])
-    leisure_ratio = (df['social_media_hours'] + df['gaming_hours'] + 1e-4) / (waking_hours + 1e-4)
-    df['risk_boundary_dist'] = np.abs(df['daily_screen_time_hours'] - 5.5) * leisure_ratio
+    leisure_hours = df['social_media_hours'] + df['gaming_hours']
+    df['compulsive_leisure_strain'] = leisure_hours * (df['app_opens_per_day'] / (df['daily_screen_time_hours'] + 0.1))
+    df['unaccounted_to_sleep_ratio'] = df['unaccounted_hours'] / (df['sleep_hours'] + 0.5)
     return df
 """
     },
     {
-        "name": "group_normalized_residuals",
-        "description": "Cohort deviation of social media and app opens from [age, gender] means",
+        "name": "residual_healer_combined",
+        "description": "Combined Productive Shield + Compulsive Strain + Unaccounted Ratio",
         "code": """
 def add_new_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    social_mean = df.groupby(['age', 'gender'])['social_media_hours'].transform('mean')
-    df['social_media_deviation'] = df['social_media_hours'] - social_mean
-    opens_mean = df.groupby(['age', 'gender'])['app_opens_per_day'].transform('mean')
-    df['app_opens_deviation'] = df['app_opens_per_day'] - opens_mean
-    return df
-"""
-    },
-    {
-        "name": "wave2_combined_trio",
-        "description": "Combination of all 3 Wave 2 non-linear signals simultaneously",
-        "code": """
-def add_new_features(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    # 1. Joint Frequency
-    joint_key = df['gender'].astype(str) + '_' + df['stress_level'].astype(str) + '_' + df['academic_work_impact'].astype(str)
-    freq_map = joint_key.value_counts(normalize=True).to_dict()
-    df['joint_profile_freq'] = joint_key.map(freq_map)
-    
-    # 2. Risk Boundary Distance
-    waking_hours = np.maximum(1.0, 24.0 - df['sleep_hours'])
-    leisure_ratio = (df['social_media_hours'] + df['gaming_hours'] + 1e-4) / (waking_hours + 1e-4)
-    df['risk_boundary_dist'] = np.abs(df['daily_screen_time_hours'] - 5.5) * leisure_ratio
-    
-    # 3. Group Normalized Deviations
-    social_mean = df.groupby(['age', 'gender'])['social_media_hours'].transform('mean')
-    df['social_media_deviation'] = df['social_media_hours'] - social_mean
-    opens_mean = df.groupby(['age', 'gender'])['app_opens_per_day'].transform('mean')
-    df['app_opens_deviation'] = df['app_opens_per_day'] - opens_mean
+    # 1. Productive Shield
+    df['productive_work_ratio'] = df['work_study_hours'] / (df['daily_screen_time_hours'] + 0.1)
+    df['work_adjusted_screen_load'] = (df['daily_screen_time_hours'] - df['work_study_hours']) / (df['sleep_hours'] + 0.1)
+    # 2. Compulsive Leisure Strain
+    leisure_hours = df['social_media_hours'] + df['gaming_hours']
+    df['compulsive_leisure_strain'] = leisure_hours * (df['app_opens_per_day'] / (df['daily_screen_time_hours'] + 0.1))
+    df['unaccounted_to_sleep_ratio'] = df['unaccounted_hours'] / (df['sleep_hours'] + 0.5)
     return df
 """
     }

@@ -61,6 +61,11 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
 
     df_clean = pd.DataFrame(validated_records)
 
+    # Preserve any extra dynamic/candidate columns passed into preprocess_and_engineer
+    extra_cols = [c for c in df.columns if c not in UserBehaviorInput.model_fields and c != 'id']
+    for c in extra_cols:
+        df_clean[c] = df[c].values
+
     # 2. Feature Engineering
     eps = 1e-9
 
@@ -122,5 +127,19 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
         if col in df_clean.columns:
             freq_map = df_clean[col].value_counts(normalize=True, dropna=True).to_dict()
             df_clean[f'{col}_freq'] = df_clean[col].map(freq_map)
+
+    # 11. Productive Work Shield (shields high-screen productive workers from False Positives)
+    df_clean['productive_work_ratio'] = np.where(
+        np.isnan(df_clean['daily_screen_time_hours']),
+        np.nan,
+        df_clean['work_study_hours'] / (df_clean['daily_screen_time_hours'] + eps)
+    )
+
+    # 12. Work-Adjusted Screen Load (pure non-work screen strain relative to sleep)
+    df_clean['work_adjusted_screen_load'] = np.where(
+        np.isnan(df_clean['sleep_hours']) | np.isnan(df_clean['daily_screen_time_hours']),
+        np.nan,
+        (df_clean['daily_screen_time_hours'] - df_clean['work_study_hours']) / (df_clean['sleep_hours'] + eps)
+    )
 
     return df_clean
