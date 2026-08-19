@@ -130,7 +130,7 @@ if os.path.exists(sub_file):
         "kaggle", "competitions", "submit",
         "-c", "playground-series-s6e8",
         "-f", sub_file,
-        "-m", "V9: 10-Fold 4-Way Ensemble (LGB+XGB+CAT+NN) + Gauss-Rank Stacking (C=0.03) + Sleep-App Ratio"
+        "-m", "V10: 10-Fold Ensemble + Optuna Tuned + ValueLevel Target Enc + Productive Shield"
     ], capture_output=True, text=True)
     print(res.stdout, flush=True)
     if res.stderr:
