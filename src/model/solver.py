@@ -1,3 +1,5 @@
+import os
+import json
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, Tuple, Optional, List
@@ -66,10 +68,24 @@ CAT_PARAMS = {
 }
 
 def get_calibrated_model_params():
-    """Dynamically routes parameters to CUDA GPU if available."""
+    """Dynamically routes parameters to CUDA GPU and integrates Optuna tuned parameters if available."""
     lgb_p = LGBM_PARAMS.copy()
     xgb_p = XGB_PARAMS.copy()
     cat_p = CAT_PARAMS.copy()
+
+    # Load tuned parameters from Optuna if present
+    tuned_path = os.path.join(os.getcwd(), "models", "best_gbdt_params.json")
+    if os.path.exists(tuned_path):
+        try:
+            with open(tuned_path, "r") as f:
+                tuned_data = json.load(f)
+            if "lgb_params" in tuned_data:
+                lgb_p.update(tuned_data["lgb_params"])
+            if "xgb_params" in tuned_data:
+                xgb_p.update(tuned_data["xgb_params"])
+            print("[TUNER] 🎯 Loaded Optuna-tuned hyperparameters into model solver.", flush=True)
+        except Exception as e:
+            print(f"[TUNER WARN] Failed to load tuned params: {e}", flush=True)
 
     try:
         import torch
