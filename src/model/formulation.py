@@ -21,11 +21,10 @@ class UserBehaviorInput(BaseModel):
 
     @model_validator(mode='after')
     def check_sub_durations(self):
-        # We only check if both values are not None and not NaN
         if self.social_media_hours is not None and self.daily_screen_time_hours is not None:
             if not np.isnan(self.social_media_hours) and not np.isnan(self.daily_screen_time_hours):
                 if self.social_media_hours > self.daily_screen_time_hours:
-                    pass # Relaxed boundary checks for synthetic data
+                    pass
 
         if self.gaming_hours is not None and self.daily_screen_time_hours is not None:
             if not np.isnan(self.gaming_hours) and not np.isnan(self.daily_screen_time_hours):
@@ -41,17 +40,15 @@ class UserBehaviorInput(BaseModel):
 
 def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Validates input and engineers 4 advanced behavioral features.
-    Handles NaN values smoothly without raising errors.
+    Validates input and engineers behavioral features and grid-frequency counts.
+    Preserves native NaN propagation for optimal GBDT tree branching.
     """
-    # Defensive copy to avoid mutating the original
     df = df.copy()
 
     # 1. Pydantic Validation
     records = df.to_dict(orient='records')
     validated_records = []
     for r in records:
-        # Replace pd.NA or literal NaNs with None for Pydantic
         clean_r = {}
         for k, v in r.items():
             if pd.isna(v):
@@ -65,45 +62,58 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
     df_clean = pd.DataFrame(validated_records)
 
     # 2. Feature Engineering
-    epsilon = 1e-9
+    eps = 1e-9
 
-    # a) social_to_screen_ratio
-    df_clean['social_to_screen_ratio'] = df_clean['social_media_hours'] / (df_clean['daily_screen_time_hours'] + epsilon)
+    # 1. Residual Screen Time (Other Screen) with native NaN propagation
+    df_clean['other_screen'] = df_clean['daily_screen_time_hours'] - (
+        df_clean['social_media_hours'] + df_clean['gaming_hours'] + df_clean['work_study_hours']
+    )
 
-    # b) gaming_to_screen_ratio
-    df_clean['gaming_to_screen_ratio'] = df_clean['gaming_hours'] / (df_clean['daily_screen_time_hours'] + epsilon)
+    # 2. Life Residual / Unaccounted Hours (24‑Hour Constraint) with native NaN propagation
+    df_clean['unaccounted_hours'] = 24.0 - (
+        df_clean['daily_screen_time_hours'] + df_clean['work_study_hours'] + df_clean['sleep_hours']
+    )
 
-    # Life Residual / Unaccounted Hours (24-Hour Constraint)
-    df_clean['unaccounted_hours'] = 24.0 - (df_clean['daily_screen_time_hours'] + df_clean['work_study_hours'] + df_clean['sleep_hours'])
+    # 3. Behavioral High‑Risk Ratios (handle NaN without eps for NaN propagation)
+    df_clean['gaming_to_screen_ratio'] = np.where(
+        np.isnan(df_clean['daily_screen_time_hours']),
+        np.nan,
+        df_clean['gaming_hours'] / (df_clean['daily_screen_time_hours'] + eps)
+    )
+    df_clean['social_to_screen_ratio'] = np.where(
+        np.isnan(df_clean['daily_screen_time_hours']),
+        np.nan,
+        df_clean['social_media_hours'] / (df_clean['daily_screen_time_hours'] + eps)
+    )
+    df_clean['screen_to_sleep_ratio'] = np.where(
+        np.isnan(df_clean['sleep_hours']),
+        np.nan,
+        df_clean['daily_screen_time_hours'] / (df_clean['sleep_hours'] + eps)
+    )
 
-    # Screen time relative to sleep
-    df_clean['screen_to_sleep_ratio'] = df_clean['daily_screen_time_hours'] / (df_clean['sleep_hours'] + epsilon)
+    # 4. Per‑hour activity rates (avoid division by zero)
+    df_clean['notifications_per_hour'] = df_clean['notifications_per_day'] / (df_clean['daily_screen_time_hours'] + eps)
+    df_clean['app_opens_per_hour'] = df_clean['app_opens_per_day'] / (df_clean['daily_screen_time_hours'] + eps)
 
-    # c) notifications_per_hour
-    # Assuming 24 hours in a day
-    df_clean['notifications_per_hour'] = df_clean['notifications_per_day'] / 24.0
+    # 5. Weekend screen‑time proportion
+    df_clean['weekend_screen_time_ratio'] = df_clean['weekend_screen_time'] / (df_clean['daily_screen_time_hours'] + eps)
 
-    # 1. sleep_deficit: max(0, 8 - sleep_duration)
-    df_clean['sleep_deficit'] = np.maximum(0.0, 8.0 - df_clean['sleep_hours'])
+    # 6. Sleep deficit relative to 8 h target
+    df_clean['sleep_deficit'] = 8.0 - df_clean['sleep_hours']
 
-    denom = df_clean['daily_screen_time_hours']
+    # 7. Total activity hours (social + gaming + work + sleep)
+    df_clean['total_activity_hours'] = df_clean[[
+        'social_media_hours', 'gaming_hours', 'work_study_hours', 'sleep_hours'
+    ]].sum(axis=1)
 
-    # 3. notification_intensity: notification_frequency / daily_screen_time_hours
-    df_clean['notification_intensity'] = np.where(denom > epsilon, df_clean['notifications_per_day'] / denom, 0.0)
+    # 8. Screen‑time proportion of total activity
+    df_clean['screen_time_ratio_total'] = df_clean['daily_screen_time_hours'] / (df_clean['total_activity_hours'] + eps)
 
-    # 4. app_opening_intensity: app_opening_frequency / daily_screen_time_hours
-    df_clean['app_opening_intensity'] = np.where(denom > epsilon, df_clean['app_opens_per_day'] / denom, 0.0)
-
-    # 5. screen_time_age_intensity: daily_screen_time_hours / age
-    age_denom = df_clean['age']
-    df_clean['screen_time_age_intensity'] = np.where(age_denom > epsilon, denom / age_denom, 0.0)
-
-    # 6. weekend_overuse_index: weekend_screen_time / daily_screen_time_hours
-    df_clean['weekend_overuse_index'] = np.where(denom > epsilon, df_clean['weekend_screen_time'] / denom, 0.0)
-
-
-    # 7. other_screen: daily_screen_time_hours - (social_media_hours + gaming_hours + work_study_hours)
-    # NaNs will naturally propagate here without filling.
-    df_clean['other_screen'] = df_clean['daily_screen_time_hours'] - (df_clean['social_media_hours'] + df_clean['gaming_hours'] + df_clean['work_study_hours'])
+    # 9. Unsupervised Grid-Frequency / Count Encoding on synthetic rounded features
+    grid_cols = ['app_opens_per_day', 'notifications_per_day', 'daily_screen_time_hours', 'weekend_screen_time', 'age']
+    for col in grid_cols:
+        if col in df_clean.columns:
+            freq_map = df_clean[col].value_counts(dropna=True).to_dict()
+            df_clean[f'{col}_freq'] = df_clean[col].map(freq_map)
 
     return df_clean

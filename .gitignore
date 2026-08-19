@@ -4,3 +4,8 @@ catboost_info/
 data/
 models/
 outputs/
+outputs_*/
+kaggle_err*/
+kaggle_out*/
+kaggle_run*/
+.DS_Store

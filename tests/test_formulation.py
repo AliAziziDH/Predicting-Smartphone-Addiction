@@ -112,8 +112,8 @@ def test_engineered_features_shape(mock_dataframe):
     # original has 12 columns
     assert mock_dataframe.shape[1] == 12
     processed = preprocess_and_engineer(mock_dataframe)
-    # output should have 12 original + 9 engineered = 21
-    assert processed.shape[1] == 23
+    # output should have 12 original + 11 engineered + 5 grid freq = 28
+    assert processed.shape[1] == 28
 
 def test_engineered_features_zero_division(mock_dataframe):
     # Daily_Screen_Time is 0 for index 1
@@ -167,7 +167,6 @@ def mock_cv_dataframe():
         "academic_work_impact": np.random.choice(["Yes", "No"], n),
     }
 
-    # Introduce some NaN values manually
     df = pd.DataFrame(data)
     df.loc[0, "daily_screen_time_hours"] = np.nan
     df.loc[5, "gender"] = np.nan
@@ -179,48 +178,36 @@ def mock_cv_dataframe():
 @patch("src.model.solver.LGBMClassifier.fit")
 @patch("src.model.solver.XGBClassifier.fit")
 @patch("src.model.solver.CatBoostClassifier.fit")
-def test_leak_free_cv_folds_touched(mock_cat_fit, mock_xgb_fit, mock_lgb_fit, mock_cv_dataframe):
+@patch("src.model.solver.DeepTabularClassifier.fit")
+def test_leak_free_cv_folds_touched(mock_nn_fit, mock_cat_fit, mock_xgb_fit, mock_lgb_fit, mock_cv_dataframe):
     X, y = mock_cv_dataframe
-    solver = CompetitionSolver(n_splits=3) # Use 3 for faster testing
+    solver = CompetitionSolver(n_splits=3, use_neural_net=True)
 
-    # We want to mock predict_proba so it runs without error
-    # despite fit being mocked.
-    # We need predict_proba to return correctly sized arrays based on the validation fold length.
-    # Since MagicMock can accept a side_effect function, we can dynamically return the correct shape.
     def mock_predict_proba(X_val):
         return np.zeros((len(X_val), 2))
 
     with patch("src.model.solver.LGBMClassifier.predict_proba", side_effect=mock_predict_proba), \
          patch("src.model.solver.XGBClassifier.predict_proba", side_effect=mock_predict_proba), \
-         patch("src.model.solver.CatBoostClassifier.predict_proba", side_effect=mock_predict_proba):
+         patch("src.model.solver.CatBoostClassifier.predict_proba", side_effect=mock_predict_proba), \
+         patch("src.model.solver.DeepTabularClassifier.predict_proba", side_effect=mock_predict_proba):
 
         oof_preds, mean_auc = solver.cross_validate(X, y)
 
-        # Verify fits were called 3 times (once per fold)
         assert mock_lgb_fit.call_count == 3
         assert mock_xgb_fit.call_count == 3
         assert mock_cat_fit.call_count == 3
+        assert mock_nn_fit.call_count == 3
 
-        # For each call, ensure the validation set was not passed to fit
-        # The first argument to fit is X_train_clean. Its size should be n * (2/3)
-        # We can inspect the arguments passed to fit.
         for call_args in mock_lgb_fit.call_args_list:
             X_train_fold, y_train_fold = call_args[0]
             assert len(X_train_fold) < len(X)
-            # The exact number depends on StratifiedKFold split,
-            # for 100 rows and 3 splits, it should be 66 or 67.
             assert 65 <= len(X_train_fold) <= 68
-            # The validation rows must not be in X_train_fold index
-            # Actually, preprocess_and_engineer resets or keeps index?
-            # Wait, preprocess_and_engineer currently creates a new DF from to_dict('records')
-            # which resets the index. So we can just check lengths.
 
 def test_leak_free_cv_output_shape(mock_cv_dataframe):
     X, y = mock_cv_dataframe
-    solver = CompetitionSolver(n_splits=2)
-
+    solver = CompetitionSolver(n_splits=2, use_neural_net=False, n_estimators=2)
     oof_preds, mean_auc = solver.cross_validate(X, y)
 
-    # OOF predictions should be a matrix of shape (len(X), 3)
+    # OOF predictions shape for 3 base models
     assert oof_preds.shape == (len(X), 3)
     assert 0 <= mean_auc <= 1.0

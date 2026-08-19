@@ -21,7 +21,7 @@ enforces a separation of concerns, strictly decoupling the predictive layer from
 1. **Analytical Core (`src/model/`):**
    - Must contain pure mathematical formulations and data-science pipelines.
    - Pydantic models for strict boundary validation and feature engineering MUST be in `src/model/formulation.py`.
-   - Solver invocation, cross-validation logic, stacking/ensembling, and Out-of-Fold (OOF) predictions safely avoiding target leakage belong strictly in `src/model/solver.py`.
+   - GBDT solvers (LightGBM, XGBoost, CatBoost), Deep Tabular PyTorch Neural Networks (`src/model/neural_tabular.py`), Vertex AI AutoML integration (`src/model/vertex_automl.py`), stacking/ensembling, and Out-of-Fold (OOF) predictions belong strictly in `src/model/solver.py`.
    - The analytical core must remain 100% headless (no Streamlit, no Matplotlib UI).
 
 2. **Testing Core (`tests/`):**
@@ -40,6 +40,14 @@ enforces a separation of concerns, strictly decoupling the predictive layer from
 - **Explicit Handles:** Return explicit resource identifiers (e.g., `dataset_id`,
   `model_id`) in tool outputs and require the agent to pass them back in later
   calls, keeping the system serverless-friendly.
+
+---
+
+## ⚡ Compute & Cloud Execution Policy (Colab / GCP / Kaggle Dual-Engine)
+- **Zero Local Footprint Policy:** Heavy 10-fold cross-validation, hyperparameter searches (Optuna), and deep model training MUST NOT be run on the local machine CPU.
+- **External Training & Quota Preservation Engine (Colab / GCP Sandbox):** Extensive training workflows, LLM-based automated feature extraction, and exploratory neural fits are dispatched to Google Colab / Google Cloud Sandbox (`ali-antigravity-hub-2026`) with unrestricted internet and high VRAM. This strictly preserves weekly Kaggle GPU quotas and eliminates offline container friction.
+- **Kaggle Dual-T4 Engine:** Reserved exclusively for final verified submissions, production inference pipelines, and official Kaggle Benchmark evaluations.
+- **Local Role:** Strictly reserved for instant sanity tests (`pytest -v`), AST linting, and dispatch orchestration.
 
 ---
 
