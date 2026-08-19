@@ -1,12 +1,12 @@
-"""
-Kaggle Benchmark Evaluation Task for Predicting Smartphone Addiction (Kaggle S6E8).
-Evaluates 10-fold CV OOF ROC-AUC, Gauss-Rank Logistic Stacking, KS-Drift stability,
-and resource consumption in a deterministic, reproducible harness.
-"""
+# %% [markdown]
+# # S6E8 Automated Multi-Agent Feature Discovery Benchmark
+# Official Kaggle Benchmark Task with Closed-Loop CAAFE / LLM-FE Evaluation
+
+# %%
 import os
 import sys
-import time
-import psutil
+import re
+import traceback
 import numpy as np
 import pandas as pd
 import scipy.stats
@@ -20,86 +20,157 @@ except NameError:
     ROOT_DIR = os.getcwd()
 
 from src.model.formulation import preprocess_and_engineer
-from src.model.solver import CompetitionSolver, LogisticStacker, perform_ks_drift_screen, to_gauss_rank
+from src.model.solver import CompetitionSolver, LogisticStacker, to_gauss_rank
 from src.train import resolve_data_path
 
 # Optional kbench decorator integration
 try:
-    import kbench
-    task_decorator = kbench.task(name="s6e8_smartphone_addiction_benchmark")
+    import kaggle_benchmarks as kbench
+    task_decorator = kbench.task(name="s6e8_automated_feature_discovery")
 except (ImportError, AttributeError):
-    def task_decorator(func):
-        return func
+    try:
+        import kbench
+        task_decorator = kbench.task(name="s6e8_automated_feature_discovery")
+    except (ImportError, AttributeError):
+        class MockKBench:
+            @staticmethod
+            def task(name=None):
+                def decorator(func):
+                    func.run = lambda llm=None: func(llm)
+                    return func
+                return decorator
+        task_decorator = MockKBench.task(name="s6e8_automated_feature_discovery")
 
 
-@task_decorator
-def run_benchmark(n_splits: int = 10, proxy_sample: int = None, n_estimators: int = None) -> dict:
+# %%
+def extract_code_block(response_text: str) -> str:
     """
-    Executes the deterministic competition benchmark and returns structured performance metrics.
+    Extracts executable Python code block containing 'def add_new_features'.
     """
-    start_time = time.time()
-    process = psutil.Process(os.getpid())
-    init_mem_mb = process.memory_info().rss / (1024 * 1024)
+    pattern = r"```(?:python)?\s*(def\s+add_new_features[\s\S]*?)```"
+    match = re.search(pattern, response_text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+
+    # Fallback to direct substring search
+    if "def add_new_features" in response_text:
+        idx = response_text.index("def add_new_features")
+        return response_text[idx:].split("```")[0].strip()
+
+    raise ValueError("No valid 'def add_new_features' Python function found in LLM response.")
+
+
+# %%
+def evaluate_candidate_features(code_str: str, proxy_sample: int = 15000, n_splits: int = 3) -> float:
+    """
+    Evaluates proposed mathematical features inside an isolated namespace
+    against 3-Fold Stratified CV with Gauss-Rank Stacking.
+    """
+    namespace = {
+        "np": np,
+        "pd": pd,
+        "scipy": scipy
+    }
+    # Execute code candidate in isolated namespace
+    exec(code_str, namespace)
+    if "add_new_features" not in namespace:
+        raise AttributeError("Function 'add_new_features' not found in executed code.")
+
+    add_new_features_fn = namespace["add_new_features"]
 
     train_path = resolve_data_path("train.csv")
     df = pd.read_csv(train_path)
-
     if proxy_sample and len(df) > proxy_sample:
         df = df.sample(n=proxy_sample, random_state=42).reset_index(drop=True)
 
-    target_col = "addicted_label"
-    X = df.drop(columns=["id", target_col], errors="ignore")
-    y = df[target_col]
+    # 1. Base Feature Engineering
+    X_base = preprocess_and_engineer(df)
 
-    # 1. Base Multi-Model Cross Validation
+    # 2. Inject Candidate Features
+    X_candidate = add_new_features_fn(X_base.copy())
+
+    target_col = "addicted_label"
+    y = df[target_col]
+    X_candidate = X_candidate.drop(columns=["id", target_col], errors="ignore")
+
+    # Sanity checks for NaNs and Shape
+    if X_candidate.shape[1] <= X_base.shape[1]:
+        raise ValueError("Candidate function did not add any new columns.")
+
+    # 3. Fast Stratified Cross-Validation
     solver = CompetitionSolver(
         n_splits=n_splits,
         random_state=42,
         use_neural_net=True,
-        n_estimators=n_estimators
+        n_estimators=100
     )
-    oof_preds_matrix, base_mean_auc = solver.cross_validate(X, y)
+    oof_preds_matrix, _ = solver.cross_validate(X_candidate, y)
 
-    # 2. Gauss-Rank Normal Percentiles
+    # 4. Gauss-Rank Logistic Stacker
     rank_oof = np.zeros_like(oof_preds_matrix)
     for i in range(oof_preds_matrix.shape[1]):
         preds = oof_preds_matrix[:, i]
         percentiles = (scipy.stats.rankdata(preds) - 0.5) / len(preds)
         rank_oof[:, i] = to_gauss_rank(percentiles)
 
-    # 3. Logistic Stacker with C=0.03
     stacker = LogisticStacker(C=0.03, random_state=42)
     stacker.fit(rank_oof, y.values)
     stacked_oof_preds = stacker.predict_proba(rank_oof)
-    stacked_auc = roc_auc_score(y.values, stacked_oof_preds)
 
-    # 4. Profiling and Stability Screening
-    end_time = time.time()
-    elapsed_sec = end_time - start_time
-    peak_mem_mb = process.memory_info().rss / (1024 * 1024) - init_mem_mb
-
-    results = {
-        "dataset_rows": len(df),
-        "n_splits": n_splits,
-        "base_4way_oof_auc": float(base_mean_auc),
-        "gauss_rank_stacked_auc": float(stacked_auc),
-        "auc_uplift": float(stacked_auc - base_mean_auc),
-        "stacker_coefficients": [float(c) for c in stacker.coef_],
-        "stacker_intercept": float(stacker.intercept_),
-        "elapsed_seconds": round(elapsed_sec, 2),
-        "memory_delta_mb": round(peak_mem_mb, 2)
-    }
-
-    print("\n" + "=" * 60)
-    print("🏆 KAGGLE BENCHMARK SUITE EXECUTION SUMMARY")
-    print("=" * 60)
-    for k, v in results.items():
-        print(f"  • {k:25s}: {v}")
-    print("=" * 60 + "\n")
-
-    return results
+    candidate_auc = float(roc_auc_score(y.values, stacked_oof_preds))
+    return candidate_auc
 
 
+# %%
+@task_decorator
+def run_feature_discovery_task(llm=None) -> float:
+    """
+    Closed-loop Automated Feature Engineering (CAAFE / LLM-FE) powered by
+    Kaggle Benchmarks Frontier Models (Claude Opus 4.8 / GPT-5.6 Sol).
+    """
+    prompt = """You are an elite competitive machine learning mathematician optimizing Kaggle S6E8 (Smartphone Addiction Prediction).
+Objective: Write a pure Python function 'def add_new_features(df: pd.DataFrame) -> pd.DataFrame' that calculates exactly 2 or 3 high-signal non-linear interaction features.
+
+Dataset & Domain Context:
+1. Budget Identity: other_screen = daily_screen_time_hours - (social_media_hours + gaming_hours + work_study_hours)
+2. Day Identity: unaccounted_hours = 24 - (daily_screen_time_hours + work_study_hours + sleep_hours)
+3. Sleep & Compulsion: sleep_deficit = max(0, 8.0 - sleep_hours), sleep_app_opens_ratio = app_opens_per_day / (sleep_hours + 0.1)
+4. Non-Linear Dynamics: Screen time has a sharp risk transition at 5-6 hours.
+5. Strict Rule: Never drop existing columns. Handle division by zero with np.where or +1e-5. Do NOT impute NaNs (GBDTs handle missing values natively).
+
+Return ONLY executable Python code starting with ```python and ending with ```."""
+
+    if llm is None:
+        print("[INFO] No external LLM passed. Simulating candidate feature proposal...")
+        candidate_code = """
+def add_new_features(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    # 1. Compulsion intensity: notifications per app open
+    df['notif_per_open'] = df['notifications_per_day'] / (df['app_opens_per_day'] + 1.0)
+    # 2. Addictive velocity: (social + gaming) * sleep deficit
+    df['addiction_velocity'] = (df['social_media_hours'] + df['gaming_hours']) * df['sleep_deficit']
+    return df
+"""
+    else:
+        print("[LLM INVOCATION] Querying Kaggle Model Proxy Frontier Model...")
+        response = llm.prompt(prompt)
+        candidate_code = extract_code_block(response)
+
+    print("--- Proposing Candidate Code ---")
+    print(candidate_code)
+    print("--------------------------------")
+
+    try:
+        score = evaluate_candidate_features(candidate_code, proxy_sample=10000, n_splits=3)
+        print(f"✅ Candidate Evaluation Successful! OOF ROC-AUC: {score:.5f}")
+        return float(score)
+    except Exception as e:
+        print(f"❌ Candidate Execution Failed: {e}")
+        traceback.print_exc()
+        return 0.0
+
+
+# %%
 if __name__ == "__main__":
-    # Sanity benchmark on fast proxy sample
-    run_benchmark(n_splits=3, proxy_sample=5000, n_estimators=10)
+    score = run_feature_discovery_task()
+    print(f"\nFinal Benchmark Task Output Score: {score}")
