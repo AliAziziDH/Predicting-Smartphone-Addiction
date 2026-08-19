@@ -119,6 +119,25 @@ seed_everything(42)"""
     cells.append(create_notebook_cell("markdown", """### Inference, KS Drift Screening and Submission Formatting"""))
     cells.append(create_notebook_cell("code", clean_code('src/predict.py') + "\n\nif __name__ == '__main__':\n    main()"))
 
+    # 7. Direct Cloud-to-Competition Auto-Submission
+    cells.append(create_notebook_cell("markdown", """### Direct Cloud-to-Competition Submission (Zero Local Roundtrips)"""))
+    cells.append(create_notebook_cell("code", """# Auto-submit directly from cloud environment to Kaggle
+import subprocess
+sub_file = "outputs/submission.csv"
+if os.path.exists(sub_file):
+    print("🚀 Submitting directly from Cloud to Kaggle Competition...", flush=True)
+    res = subprocess.run([
+        "kaggle", "competitions", "submit",
+        "-c", "playground-series-s6e8",
+        "-f", sub_file,
+        "-m", "V9: 10-Fold 4-Way Ensemble (LGB+XGB+CAT+NN) + Gauss-Rank Stacking (C=0.03) + Sleep-App Ratio"
+    ], capture_output=True, text=True)
+    print(res.stdout, flush=True)
+    if res.stderr:
+        print("Kaggle CLI response:", res.stderr, flush=True)
+else:
+    print(f"Submission file not found at {sub_file}")"""))
+
     notebook = {
         "cells": cells,
         "metadata": {
