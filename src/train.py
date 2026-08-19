@@ -20,7 +20,11 @@ from sklearn.metrics import roc_auc_score
 from src.model.solver import CompetitionSolver, LogisticStacker, EnsembleBlender, to_gauss_rank
 
 def resolve_data_path(filename):
+    import zipfile
     paths_to_check = [
+        f"/content/{filename}",
+        f"/content/data/{filename}",
+        f"/content/playground-series-s6e8/{filename}",
         f"/kaggle/input/playground-series-s6e8/{filename}",
         f"/kaggle/input/competitions/playground-series-s6e8/{filename}",
         f"../input/playground-series-s6e8/{filename}",
@@ -33,7 +37,20 @@ def resolve_data_path(filename):
             print(f"[INFO] Successfully resolved {filename} to: {path}", flush=True)
             return path
 
-    search_roots = ["/kaggle/input", "../input", "data", "."]
+    # Auto-extract zip if found in /content, data, or current dir
+    for zip_candidate in ["playground-series-s6e8.zip", "data/playground-series-s6e8.zip", "/content/playground-series-s6e8.zip", "/content/data/playground-series-s6e8.zip"]:
+        if os.path.exists(zip_candidate):
+            print(f"[INFO] Found zip archive {zip_candidate}, auto-extracting to data/...", flush=True)
+            os.makedirs("data", exist_ok=True)
+            with zipfile.ZipFile(zip_candidate, 'r') as zip_ref:
+                zip_ref.extractall("data")
+            if os.path.exists(f"data/{filename}"):
+                return f"data/{filename}"
+            if os.path.exists(filename):
+                return filename
+
+    # Global recursive search in /content, /kaggle/input, data, .
+    search_roots = ["/content", "/kaggle/input", "../input", "data", "."]
     for root_dir in search_roots:
         if os.path.exists(root_dir):
             for root, dirs, files in os.walk(root_dir):
@@ -41,6 +58,21 @@ def resolve_data_path(filename):
                     found = os.path.join(root, filename)
                     print(f"[INFO] Found {filename} via walk: {found}", flush=True)
                     return found
+
+    # If Kaggle API is configured in Colab, attempt automated direct download
+    try:
+        import subprocess
+        print(f"[INFO] Attempting automated Kaggle download for {filename}...", flush=True)
+        os.makedirs("data", exist_ok=True)
+        subprocess.run(["kaggle", "competitions", "download", "-c", "playground-series-s6e8", "-p", "data/"], check=False)
+        for z in os.listdir("data"):
+            if z.endswith(".zip"):
+                with zipfile.ZipFile(os.path.join("data", z), 'r') as zip_ref:
+                    zip_ref.extractall("data")
+        if os.path.exists(f"data/{filename}"):
+            return f"data/{filename}"
+    except Exception as e:
+        print(f"[WARN] Auto-download failed: {e}", flush=True)
 
     raise FileNotFoundError(f"Could not find {filename} anywhere in {search_roots}")
 
