@@ -45,10 +45,28 @@ enforces a separation of concerns, strictly decoupling the predictive layer from
 
 ## ⚡ Compute & Cloud Execution Policy (Colab / GCP / Kaggle Dual-Engine)
 - **Zero Local Footprint Policy:** Heavy 10-fold cross-validation, hyperparameter searches (Optuna), and deep model training MUST NOT be run on the local machine CPU or waste Kaggle GPU quotas.
-- **External Training & Quota Preservation Engine (Colab / GCP Sandbox):** Extensive training workflows, LLM-based automated feature extraction, and exploratory neural fits are dispatched to Google Cloud Compute Engine (`google-compute-engine` on project `ali-antigravity-hub-2026`) or Colab. This strictly preserves weekly Kaggle GPU quotas.
+- **External Training & Quota Preservation Engine (Colab / GCP Sandbox):** Extensive training workflows, LLM-based automated feature extraction, and exploratory neural fits are dispatched to Google Colab GPU (`google-colab-cli`) or Google Cloud Compute Engine (`google-compute-engine` on project `ali-antigravity-hub-2026`). This strictly preserves weekly Kaggle GPU quotas.
 - **Google AI Studio Intelligence Core (`src/studio_engine.py`):** All generative feature discovery, residual diagnostics, and mathematical formulations MUST strictly leverage `gemini-3.1-pro-preview` in Google AI Studio via `StudioEngine`.
 - **Kaggle Dual-T4 Engine:** Reserved exclusively for final verified submissions, production inference pipelines (<1 min runtime), and official Kaggle Benchmark evaluations.
 - **Local Role:** Strictly reserved for instant sanity tests (`pytest -v`), AST linting, and dispatch orchestration.
+
+---
+
+## 🚀 Official Google Colab CLI & Colab MCP Integration Guide
+This repository utilizes official Google tooling for seamless remote GPU orchestration:
+1. **Google Colab CLI (`google-colab-cli`):**
+   - **GPU Provisioning:** `colab new --gpu T4 -s s6e8` (Allocates Nvidia Tesla T4 GPU cloud VM).
+   - **Environment Bootstrap:** `colab install -s s6e8 lightgbm xgboost catboost pydantic optuna scipy scikit-learn kaggle`
+   - **Fast Asset Transfer:** `colab upload -s s6e8 <local_file> <remote_path>` / `colab download -s s6e8 <remote_file>`
+   - **Headless Execution:** `colab exec -s s6e8 -f <script.py>`
+   - **Session Lifecycle:** `colab status -s s6e8`, `colab stop -s s6e8`
+   - **Patches Applied:** `jupyter_kernel_client.KernelClient = JupyterKernelClient`, `REQUEST_TIMEOUT = 3600` for long training cycles.
+2. **Google Colab MCP Server (`googlecolab/colab-mcp`):**
+   - Official MCP protocol bridging Antigravity and AI agents to active Colab sessions (`list_sessions`, `fetch_transcript`, `search_logs`, `summarize_session`).
+   - Configured via `"colab-mcp": {"command": "uvx", "args": ["git+https://github.com/googlecolab/colab-mcp"]}`.
+3. **Execution Invariant:**
+   - Always verify active GPU session with `colab status -s <name>`.
+   - Never allow unmonitored local CPU loops when Colab GPU is available.
 
 ---
 
