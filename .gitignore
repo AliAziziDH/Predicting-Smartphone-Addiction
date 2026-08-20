@@ -10,3 +10,9 @@ kaggle_out*/
 kaggle_run*/
 .DS_Store
 .env
+*.zip
+submission*.csv
+logs/
+scratch/
+reports/temp_*
+

@@ -7,31 +7,30 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import roc_auc_score
 from sklearn.linear_model import LogisticRegression
-from scipy.stats import ks_2samp, norm
+from scipy.stats import ks_2samp, norm, rankdata
 from lightgbm import LGBMClassifier
 from xgboost import XGBClassifier
 from catboost import CatBoostClassifier
-import optuna
 from scipy.optimize import minimize
 
 from src.model.formulation import preprocess_and_engineer
 from src.model.neural_tabular import DeepTabularClassifier
 
 
-# Highly calibrated, regularized GBDT configurations for synthetic tabular manifolds
+# Calibrated, highly regularized GBDT configurations
 LGBM_PARAMS = {
     "objective": "binary",
     "metric": "auc",
     "boosting_type": "gbdt",
-    "n_estimators": 3000,
-    "learning_rate": 0.015,
-    "num_leaves": 127,
+    "n_estimators": 2500,
+    "learning_rate": 0.02,
+    "num_leaves": 63,
     "max_depth": -1,
-    "min_child_samples": 250,
-    "subsample": 0.8,
-    "colsample_bytree": 0.7,
-    "reg_alpha": 0.5,
-    "reg_lambda": 2.0,
+    "min_child_samples": 100,
+    "subsample": 0.85,
+    "colsample_bytree": 0.70,
+    "reg_alpha": 0.1,
+    "reg_lambda": 3.0,
     "random_state": 42,
     "verbose": -1,
     "n_jobs": -1
@@ -40,12 +39,12 @@ LGBM_PARAMS = {
 XGB_PARAMS = {
     "objective": "binary:logistic",
     "eval_metric": "auc",
-    "n_estimators": 3000,
-    "learning_rate": 0.015,
-    "max_depth": 7,
-    "min_child_weight": 15,
-    "subsample": 0.8,
-    "colsample_bytree": 0.75,
+    "n_estimators": 2500,
+    "learning_rate": 0.02,
+    "max_depth": 6,
+    "min_child_weight": 10,
+    "subsample": 0.85,
+    "colsample_bytree": 0.65,
     "reg_alpha": 0.5,
     "reg_lambda": 5.0,
     "random_state": 42,
@@ -56,24 +55,24 @@ XGB_PARAMS = {
 CAT_PARAMS = {
     "loss_function": "Logloss",
     "eval_metric": "AUC",
-    "iterations": 3000,
-    "learning_rate": 0.02,
-    "depth": 7,
+    "iterations": 2200,
+    "learning_rate": 0.025,
+    "depth": 6,
     "l2_leaf_reg": 5.0,
     "bootstrap_type": "Bernoulli",
-    "subsample": 0.8,
+    "subsample": 0.85,
     "random_state": 42,
     "verbose": False,
     "thread_count": -1
 }
 
-def get_calibrated_model_params():
-    """Dynamically routes parameters to CUDA GPU and integrates Optuna tuned parameters if available."""
+
+def get_calibrated_model_params() -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    """Dynamically routes parameters to CUDA GPU if available and loads Optuna tuned parameters."""
     lgb_p = LGBM_PARAMS.copy()
     xgb_p = XGB_PARAMS.copy()
     cat_p = CAT_PARAMS.copy()
 
-    # Load tuned parameters from Optuna if present
     tuned_path = os.path.join(os.getcwd(), "models", "best_gbdt_params.json")
     if os.path.exists(tuned_path):
         try:
@@ -83,9 +82,8 @@ def get_calibrated_model_params():
                 lgb_p.update(tuned_data["lgb_params"])
             if "xgb_params" in tuned_data:
                 xgb_p.update(tuned_data["xgb_params"])
-            print("[TUNER] 🎯 Loaded Optuna-tuned hyperparameters into model solver.", flush=True)
         except Exception as e:
-            print(f"[TUNER WARN] Failed to load tuned params: {e}", flush=True)
+            pass
 
     try:
         import torch
@@ -96,7 +94,6 @@ def get_calibrated_model_params():
     if has_cuda:
         xgb_p["device"] = "cuda"
         cat_p["task_type"] = "GPU"
-        print("[HARDWARE] 🚀 Nvidia CUDA GPU detected! Accelerated hist engine engaged.", flush=True)
     else:
         xgb_p["device"] = "cpu"
         cat_p["task_type"] = "CPU"
@@ -104,18 +101,13 @@ def get_calibrated_model_params():
     return lgb_p, xgb_p, cat_p
 
 
-class UniversalLevelTargetEncoder:
+class DiscreteCategoricalTargetEncoder:
     """
-    Leak-Free Out-of-Fold Universal Level Target & Frequency Encoder with Laplace Smoothing (SMOOTH=10.0).
-    Encodes explicit string levels (including '__missing__') across all columns to extract CTGAN discrete likelihood priors.
+    Leak-Free Out-of-Fold Target & Frequency Encoder strictly for discrete categoricals.
+    Applies Laplace smoothing (smooth=20.0) to prevent overfitting on low-cardinality groups.
     """
-    def __init__(self, cols: Optional[List[str]] = None, smooth: float = 10.0, n_splits: int = 5, random_state: int = 42):
-        self.cols = cols or [
-            'daily_screen_time_hours', 'social_media_hours', 'gaming_hours',
-            'work_study_hours', 'sleep_hours', 'notifications_per_day',
-            'app_opens_per_day', 'weekend_screen_time', 'age',
-            'gender', 'stress_level', 'academic_work_impact'
-        ]
+    def __init__(self, cat_cols: Optional[List[str]] = None, smooth: float = 20.0, n_splits: int = 5, random_state: int = 42):
+        self.cat_cols = cat_cols or ['gender', 'stress_level', 'academic_work_impact']
         self.smooth = smooth
         self.n_splits = n_splits
         self.random_state = random_state
@@ -128,16 +120,16 @@ class UniversalLevelTargetEncoder:
         self.te_mapping = {}
         self.freq_mapping = {}
 
-    def _make_levels(self, df: pd.DataFrame) -> pd.DataFrame:
-        cols_present = [c for c in self.cols if c in df.columns]
+    def _make_discrete_levels(self, df: pd.DataFrame) -> pd.DataFrame:
+        cols_present = [c for c in self.cat_cols if c in df.columns]
         levels_dict = {
-            c: df[c].astype(object).fillna('__missing__').astype(str).values
+            c: df[c].fillna('__missing__').astype(str).values
             for c in cols_present
         }
         for c1, c2 in self.cat_pairs:
             if c1 in df.columns and c2 in df.columns:
-                v1 = df[c1].astype(object).fillna('__missing__').astype(str).values
-                v2 = df[c2].astype(object).fillna('__missing__').astype(str).values
+                v1 = df[c1].fillna('__missing__').astype(str).values
+                v2 = df[c2].fillna('__missing__').astype(str).values
                 levels_dict[f'{c1}_{c2}'] = (v1 + '_' + v2)
         return pd.DataFrame(levels_dict, index=df.index)
 
@@ -147,7 +139,7 @@ class UniversalLevelTargetEncoder:
         self.te_mapping = {}
         self.freq_mapping = {}
 
-        levels_df = self._make_levels(X)
+        levels_df = self._make_discrete_levels(X)
         cols_present = levels_df.columns.tolist()
         y_arr = y.to_numpy(dtype=np.float64)
 
@@ -167,7 +159,7 @@ class UniversalLevelTargetEncoder:
             self.te_mapping[col] = dict(zip(uniques, smoothed_global))
             self.freq_mapping[col] = dict(zip(uniques, freqs_global))
 
-            # Fast Out-of-Fold computation via vectorized NumPy arrays
+            # Fast Out-of-Fold computation
             oof_te = np.zeros(len(X), dtype=np.float32)
             oof_freq = np.zeros(len(X), dtype=np.float32)
 
@@ -188,23 +180,25 @@ class UniversalLevelTargetEncoder:
                 oof_te[val_idx] = tr_smoothed[val_codes]
                 oof_freq[val_idx] = tr_freqs[val_codes]
 
-            X_out[f'{col}_lvl_te'] = oof_te
-            X_out[f'{col}_lvl_freq'] = oof_freq
+            X_out[f'{col}_te'] = oof_te
+            X_out[f'{col}_freq'] = oof_freq
 
         return X_out
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         X_out = X.copy()
-        levels_df = self._make_levels(X)
+        levels_df = self._make_discrete_levels(X)
         for col in levels_df.columns:
             if col in self.te_mapping:
                 lvl_col = levels_df[col]
-                X_out[f'{col}_lvl_te'] = lvl_col.map(self.te_mapping[col]).fillna(self.global_mean).values.astype(np.float32)
-                X_out[f'{col}_lvl_freq'] = lvl_col.map(self.freq_mapping[col]).fillna(0.0).values.astype(np.float32)
+                X_out[f'{col}_te'] = lvl_col.map(self.te_mapping[col]).fillna(self.global_mean).values.astype(np.float32)
+                X_out[f'{col}_freq'] = lvl_col.map(self.freq_mapping[col]).fillna(0.0).values.astype(np.float32)
         return X_out
 
-# Backward compatibility alias
-ValueLevelTargetEncoder = UniversalLevelTargetEncoder
+
+# Backward compatibility aliases
+UniversalLevelTargetEncoder = DiscreteCategoricalTargetEncoder
+ValueLevelTargetEncoder = DiscreteCategoricalTargetEncoder
 
 
 class CompetitionSolver:
@@ -213,13 +207,13 @@ class CompetitionSolver:
         self.random_state = random_state
         self.use_neural_net = use_neural_net
         self.n_estimators = n_estimators
-        self.estimators = {}
+        self.fold_models = []
+        self.fold_encoders = []
 
     def cross_validate(self, X: pd.DataFrame, y: pd.Series) -> Tuple[np.ndarray, float]:
         """
-        Executes a 10-fold Stratified CV loop targeting 'addicted_label'
-        with strict leak-free local fold preprocessing, Value-Level Target Encoding,
-        and 4-way heterogeneous modeling.
+        Executes a leak-free 10-fold Stratified CV loop with clean feature engineering,
+        discrete target encoding, and diverse model ensembling.
         """
         X = X.reset_index(drop=True)
         y = y.reset_index(drop=True)
@@ -234,23 +228,20 @@ class CompetitionSolver:
         self.fold_encoders = []
 
         for fold, (train_idx, val_idx) in enumerate(cv.split(X, y)):
-            print(f'Starting fold {fold + 1}/{self.n_splits}...', flush=True)
             X_train, y_train = X.iloc[train_idx], y.iloc[train_idx]
             X_val, y_val = X.iloc[val_idx], y.iloc[val_idx]
 
-            # 1. Feature Engineering
+            # 1. Clean Feature Engineering
             X_train_clean = preprocess_and_engineer(X_train)
             X_val_clean = preprocess_and_engineer(X_val)
 
-            # 2. Out-of-Fold Universal Level Target & Frequency Encoding with Laplace smoothing
-            te = UniversalLevelTargetEncoder(smooth=10.0, n_splits=5, random_state=self.random_state + fold)
+            # 2. Leak-Free Discrete Target & Frequency Encoding
+            te = DiscreteCategoricalTargetEncoder(smooth=20.0, n_splits=5, random_state=self.random_state + fold)
             X_train_clean = te.fit_transform(X_train_clean, y_train)
             X_val_clean = te.transform(X_val_clean)
 
-            # Categorical cols for encoding
+            # 3. Categorical Label Encoding localized to the fold
             cat_cols = list(X_train_clean.select_dtypes(exclude=[np.number]).columns)
-
-            # 3. Categorical Encoding localized to the fold
             encoders = {}
             for col in cat_cols:
                 le = LabelEncoder()
@@ -258,13 +249,11 @@ class CompetitionSolver:
                 val_series = X_val_clean[col].fillna('Missing').astype(str)
 
                 X_train_clean[col] = le.fit_transform(train_series)
-
                 val_classes = list(set(val_series.tolist()))
                 missing_classes = set(val_classes) - set(le.classes_)
                 if missing_classes:
                     le.classes_ = np.append(le.classes_, list(missing_classes))
                 X_val_clean[col] = le.transform(val_series)
-
                 encoders[col] = le
 
             self.fold_encoders.append({
@@ -273,12 +262,13 @@ class CompetitionSolver:
                 'cat_cols': cat_cols
             })
 
-            # 3. GBDT Hardware Acceleration
+            # 4. GBDT Training
             lgb_params, xgb_params, cat_params = get_calibrated_model_params()
             if self.n_estimators is not None:
                 lgb_params["n_estimators"] = self.n_estimators
                 xgb_params["n_estimators"] = self.n_estimators
                 cat_params["iterations"] = self.n_estimators
+
             lgb = LGBMClassifier(**lgb_params)
             xgb = XGBClassifier(**xgb_params)
             cat = CatBoostClassifier(**cat_params)
@@ -291,14 +281,10 @@ class CompetitionSolver:
             p_xgb = xgb.predict_proba(X_val_clean)[:, 1]
             p_cat = cat.predict_proba(X_val_clean)[:, 1]
 
-            fold_model_dict = {
-                'lgb': lgb,
-                'xgb': xgb,
-                'cat': cat
-            }
+            fold_model_dict = {'lgb': lgb, 'xgb': xgb, 'cat': cat}
 
             if self.use_neural_net:
-                nn_epochs = 1 if (self.n_estimators is not None and self.n_estimators < 10) else 8
+                nn_epochs = 1 if (self.n_estimators is not None and self.n_estimators < 10) else 6
                 nn = DeepTabularClassifier(hidden_dim=128, num_blocks=2, epochs=nn_epochs, batch_size=4096)
                 nn.fit(X_train_clean, y_train.values, cat_cols=cat_cols)
                 p_nn = nn.predict_proba(X_val_clean)[:, 1]
@@ -317,24 +303,18 @@ class CompetitionSolver:
             fold_auc = roc_auc_score(y_val, blend_preds)
             fold_scores.append(fold_auc)
 
-        mean_auc = np.mean(fold_scores)
+        mean_auc = float(np.mean(fold_scores))
         return oof_preds_matrix, mean_auc
 
 
 def to_gauss_rank(ranks: np.ndarray, eps: float = 1e-6) -> np.ndarray:
-    """
-    Transforms rank percentiles (0, 1) into standard Gaussian domain using inverse normal CDF (probit).
-    Eliminates scale distortions between tree models (GBDT) and continuous MLP neural nets.
-    """
+    """Transforms rank percentiles (0, 1) into standard Gaussian domain using probit."""
     clipped = np.clip(ranks, eps, 1.0 - eps)
     return norm.ppf(clipped)
 
 
 class LogisticStacker:
-    """
-    Nested Logistic Regression Stacker on Gauss-Rank Transformed Percentiles.
-    Regularized at C=0.03 to prevent negative weight overfitting.
-    """
+    """Logistic Regression Stacker on Gauss-Rank Transformed Percentiles."""
     def __init__(self, C: float = 0.03, random_state: int = 42):
         self.C = C
         self.random_state = random_state
@@ -352,128 +332,11 @@ class LogisticStacker:
         return self.model.predict_proba(preds_matrix)[:, 1]
 
 
-def perform_ks_drift_screen(oof_rank: np.ndarray, test_rank: np.ndarray, threshold: float = 0.05) -> Tuple[bool, float]:
-    """
-    Kolmogorov-Smirnov two-sample test to detect rank distribution drift between OOF and Test sets.
-    """
-    stat, p_val = ks_2samp(oof_rank, test_rank)
-    passed = stat <= threshold
-    return passed, float(stat)
-
-
-class NelderMeadRankStacker:
-    """
-    Direct Non-Parametric Nelder-Mead Rank-AUC Optimizer.
-    Finds non-negative weights that directly maximize the ROC-AUC rank metric
-    on out-of-fold probability matrices, eliminating calibration distortions.
-    """
-    def __init__(self, random_state: int = 42):
-        self.random_state = random_state
-        self.weights_ = None
-
-    def _objective(self, unconstrained_weights: np.ndarray, preds_matrix: np.ndarray, y: np.ndarray) -> float:
-        # Softmax projection ensures non-negativity and sum(w) = 1.0
-        exp_w = np.exp(unconstrained_weights - np.max(unconstrained_weights))
-        weights = exp_w / np.sum(exp_w)
-        
-        # Weighted rank blend
-        blended = np.dot(preds_matrix, weights)
-        return -roc_auc_score(y, blended)
-
-    def fit(self, preds_matrix: np.ndarray, y: np.ndarray):
-        n_models = preds_matrix.shape[1]
-        init_weights = np.zeros(n_models)
-
-        res = minimize(
-            self._objective,
-            x0=init_weights,
-            args=(preds_matrix, y),
-            method='Nelder-Mead',
-            options={'maxiter': 500, 'xatol': 1e-4, 'fatol': 1e-5}
-        )
-
-        exp_w = np.exp(res.x - np.max(res.x))
-        self.weights_ = exp_w / np.sum(exp_w)
-        return self
-
-    def predict_proba(self, preds_matrix: np.ndarray) -> np.ndarray:
-        if self.weights_ is None:
-            raise ValueError("NelderMeadRankStacker is not fitted yet.")
-        return np.dot(preds_matrix, self.weights_)
-
-
-class TwoStageHybridStacker:
-    """
-    Claude + Gemini 3.1 Pro Two-Stage Hybrid Calibration & Ensembling Stacker.
-    Stage A: Logit-weighted Tree Cartel (LightGBM + CatBoost + XGBoost).
-    Stage B: Rank-blended Tree Cartel with Tabular Neural Network (MLP).
-    Optimized via Nelder-Mead with Micro-LogLoss surrogate on ROC-AUC step function.
-    """
-    def __init__(self, random_state: int = 42):
-        self.random_state = random_state
-        self.tree_weights_ = None
-        self.alpha_ = None
-
-    def _to_logit(self, p: np.ndarray) -> np.ndarray:
-        p_c = np.clip(p, 1e-5, 1.0 - 1e-5)
-        return np.log(p_c / (1.0 - p_c))
-
-    def _to_rank(self, p: np.ndarray) -> np.ndarray:
-        from scipy.stats import rankdata
-        return (rankdata(p) - 0.5) / len(p)
-
-    def fit(self, oof_lgb: np.ndarray, oof_cat: np.ndarray, oof_xgb: np.ndarray, oof_nn: np.ndarray, y: np.ndarray):
-        from sklearn.metrics import log_loss
-        z_lgb = self._to_logit(oof_lgb)
-        z_cat = self._to_logit(oof_cat)
-        z_xgb = self._to_logit(oof_xgb)
-        r_nn = self._to_rank(oof_nn)
-        n = len(y)
-
-        def objective(params):
-            w1, w2, w3, alpha = params
-            w_sum = w1 + w2 + w3 + 1e-8
-            w1_n, w2_n, w3_n = w1 / w_sum, w2 / w_sum, w3 / w_sum
-
-            # Stage A: Tree Cartel in Logit space
-            z_tree = w1_n * z_lgb + w2_n * z_cat + w3_n * z_xgb
-            p_tree = 1.0 / (1.0 + np.exp(-z_tree))
-            r_tree = self._to_rank(p_tree)
-
-            # Stage B: Final Rank Blend with MLP
-            p_final = alpha * r_tree + (1.0 - alpha) * r_nn
-            auc = roc_auc_score(y, p_final)
-            loss = log_loss(y, np.clip(p_final, 1e-5, 1.0 - 1e-5))
-            return -auc + 1e-4 * loss
-
-        init_params = [0.33, 0.33, 0.33, 0.80]
-        bounds = [(0, 1), (0, 1), (0, 1), (0, 1)]
-        res = minimize(objective, init_params, method='Nelder-Mead', bounds=bounds)
-
-        w1, w2, w3, alpha = res.x
-        w_sum = w1 + w2 + w3 + 1e-8
-        self.tree_weights_ = np.array([w1 / w_sum, w2 / w_sum, w3 / w_sum], dtype=np.float32)
-        self.alpha_ = float(alpha)
-        return self
-
-    def predict_proba(self, p_lgb: np.ndarray, p_cat: np.ndarray, p_xgb: np.ndarray, p_nn: np.ndarray) -> np.ndarray:
-        if self.tree_weights_ is None:
-            raise ValueError("TwoStageHybridStacker is not fitted yet.")
-        z_lgb = self._to_logit(p_lgb)
-        z_cat = self._to_logit(p_cat)
-        z_xgb = self._to_logit(p_xgb)
-        r_nn = self._to_rank(p_nn)
-
-        z_tree = self.tree_weights_[0] * z_lgb + self.tree_weights_[1] * z_cat + self.tree_weights_[2] * z_xgb
-        p_tree = 1.0 / (1.0 + np.exp(-z_tree))
-        r_tree = self._to_rank(p_tree)
-
-        p_final = self.alpha_ * r_tree + (1.0 - self.alpha_) * r_nn
-        return p_final
-
-
 class EnsembleBlender:
-    """Legacy SLSQP Bounded Blender."""
+    """
+    SLSQP Bounded Convex Optimization Blender.
+    Finds optimal non-negative weights (sum=1.0, w_i >= 0) to maximize ROC-AUC.
+    """
     def __init__(self):
         self.weights_ = None
 
@@ -500,51 +363,83 @@ class EnsembleBlender:
         return self.weights_
 
 
-def get_or_create_cloud_study(study_name: str = "s6e8_master_study") -> Any:
-    """
-    اتصال به دیتابیس لجر Cloud SQL و راه‌اندازی/بازیابی مطالعه اپتونا با قابلیت Warm-Start
-    """
-    import logging
-    logger = logging.getLogger("OptunaCloudOrchestrator")
+class NelderMeadRankStacker:
+    """Non-Parametric Nelder-Mead Rank-AUC Optimizer with Softmax Projection."""
+    def __init__(self, random_state: int = 42):
+        self.random_state = random_state
+        self.weights_ = None
 
-    db_user = os.getenv("CLOUD_SQL_USER", "postgres")
-    db_pass = os.getenv("CLOUD_SQL_PASSWORD", "your-secure-password")
-    db_name = os.getenv("CLOUD_SQL_DB", "optuna_ledger")
-    db_host = os.getenv("CLOUD_SQL_HOST")  # آی‌پی داخلی اینستنس Cloud SQL
+    def _objective(self, unconstrained_weights: np.ndarray, preds_matrix: np.ndarray, y: np.ndarray) -> float:
+        exp_w = np.exp(unconstrained_weights - np.max(unconstrained_weights))
+        weights = exp_w / np.sum(exp_w)
+        blended = np.dot(preds_matrix, weights)
+        return -roc_auc_score(y, blended)
 
-    try:
-        import optuna
-        from optuna.storages import RDBStorage
-    except ImportError:
-        logger.warning("⚠️ کتابخانه optuna نصب نیست. لطفاً آن را نصب کنید.")
-        return None
+    def fit(self, preds_matrix: np.ndarray, y: np.ndarray):
+        n_models = preds_matrix.shape[1]
+        init_weights = np.zeros(n_models)
 
-    if not db_host:
-        logger.warning("⚠️ آی‌پی Cloud SQL یافت نشد. در حال استفاده از مود InMemory موقت...")
-        return optuna.create_study(direction="maximize")
+        res = minimize(
+            self._objective,
+            x0=init_weights,
+            args=(preds_matrix, y),
+            method='Nelder-Mead',
+            options={'maxiter': 500, 'xatol': 1e-4, 'fatol': 1e-5}
+        )
 
-    # ساخت URL اتصال استاندارد PostgreSQL برای اپتونا
-    database_url = f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:5432/{db_name}"
+        exp_w = np.exp(res.x - np.max(res.x))
+        self.weights_ = exp_w / np.sum(exp_w)
+        return self
 
-    # پیکربندی مخزن داده رابطه‌ای (RDBStorage)
-    storage = RDBStorage(
-        url=database_url,
-        engine_kwargs={
-            "pool_size": 10,
-            "max_overflow": 20,
-            "pool_pre_ping": True  # بررسی زنده بودن کانکشن قبل از ارسال کوئری
-        }
-    )
-
-    logger.info(f"🔄 در حال بررسی وضعیت مطالعه [{study_name}] روی لجر ابری...")
-    study = optuna.create_study(
-        study_name=study_name,
-        direction="maximize",
-        storage=storage,
-        load_if_exists=True    # 👈 کلید طلایی Warm-Start: بازیابی خودکار از ادامه تریال‌ها
-    )
-
-    logger.info(f"✅ مطالعه با موفقیت بازیابی/ایجاد شد. تعداد تریال‌های ثبت شده فعلی: {len(study.trials)}")
-    return study
+    def predict_proba(self, preds_matrix: np.ndarray) -> np.ndarray:
+        if self.weights_ is None:
+            raise ValueError("NelderMeadRankStacker is not fitted yet.")
+        return np.dot(preds_matrix, self.weights_)
 
 
+class TwoStageHybridStacker:
+    """Two-Stage Robust Blending Stacker."""
+    def __init__(self, random_state: int = 42):
+        self.random_state = random_state
+        self.tree_weights_ = None
+        self.alpha_ = None
+
+    def _to_rank(self, p: np.ndarray) -> np.ndarray:
+        return (rankdata(p) - 0.5) / len(p)
+
+    def fit(self, oof_lgb: np.ndarray, oof_cat: np.ndarray, oof_xgb: np.ndarray, oof_nn: np.ndarray, y: np.ndarray):
+        r_lgb = self._to_rank(oof_lgb)
+        r_cat = self._to_rank(oof_cat)
+        r_xgb = self._to_rank(oof_xgb)
+        r_nn = self._to_rank(oof_nn)
+
+        def objective(params):
+            w1, w2, w3, alpha = params
+            w_sum = w1 + w2 + w3 + 1e-8
+            w1_n, w2_n, w3_n = w1 / w_sum, w2 / w_sum, w3 / w_sum
+
+            r_tree = w1_n * r_lgb + w2_n * r_cat + w3_n * r_xgb
+            p_final = alpha * r_tree + (1.0 - alpha) * r_nn
+            return -roc_auc_score(y, p_final)
+
+        init_params = [0.33, 0.33, 0.33, 0.85]
+        bounds = [(0, 1), (0, 1), (0, 1), (0, 1)]
+        res = minimize(objective, init_params, method='Nelder-Mead', bounds=bounds)
+
+        w1, w2, w3, alpha = res.x
+        w_sum = w1 + w2 + w3 + 1e-8
+        self.tree_weights_ = np.array([w1 / w_sum, w2 / w_sum, w3 / w_sum], dtype=np.float32)
+        self.alpha_ = float(alpha)
+        return self
+
+    def predict_proba(self, p_lgb: np.ndarray, p_cat: np.ndarray, p_xgb: np.ndarray, p_nn: np.ndarray) -> np.ndarray:
+        if self.tree_weights_ is None:
+            raise ValueError("TwoStageHybridStacker is not fitted yet.")
+        r_lgb = self._to_rank(p_lgb)
+        r_cat = self._to_rank(p_cat)
+        r_xgb = self._to_rank(p_xgb)
+        r_nn = self._to_rank(p_nn)
+
+        r_tree = self.tree_weights_[0] * r_lgb + self.tree_weights_[1] * r_cat + self.tree_weights_[2] * r_xgb
+        p_final = self.alpha_ * r_tree + (1.0 - self.alpha_) * r_nn
+        return p_final

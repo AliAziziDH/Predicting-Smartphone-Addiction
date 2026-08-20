@@ -112,32 +112,21 @@ def test_engineered_features_shape(mock_dataframe):
     # original has 12 columns
     assert mock_dataframe.shape[1] == 12
     processed = preprocess_and_engineer(mock_dataframe)
-    # output has 12 original + engineered features (including decimal lattice, missingness, clickhouse, bigquery, and Claude+Gemini Crown Jewel features) = 69
-    assert processed.shape[1] == 69
-    assert 'cpr_compulsive_pull_ratio' in processed.columns
-    assert 'utl_unaccounted_time_leakage' in processed.columns
-    assert 'utl_leakage_ratio' in processed.columns
-    assert 'wesi_weekend_escalation_stress' in processed.columns
-    assert 'sleep_displacement_capacity' in processed.columns
-    assert 'gaming_discretionary_monopolization' in processed.columns
-    assert 'sleep_app_opens_ratio' in processed.columns
+    # output has 12 original + 13 clean engineered features = 25
+    assert processed.shape[1] == 25
+    assert 'other_screen' in processed.columns
+    assert 'unaccounted_hours' in processed.columns
+    assert 'gaming_to_screen_ratio' in processed.columns
+    assert 'social_to_screen_ratio' in processed.columns
+    assert 'screen_to_sleep_ratio' in processed.columns
+    assert 'notifications_per_hour' in processed.columns
+    assert 'app_opens_per_hour' in processed.columns
+    assert 'compulsive_pull_ratio' in processed.columns
+    assert 'weekend_screen_time_ratio' in processed.columns
+    assert 'sleep_deficit' in processed.columns
     assert 'productive_work_ratio' in processed.columns
     assert 'work_adjusted_screen_load' in processed.columns
-    assert 'compulsive_checking_velocity' in processed.columns
-    assert 'frac_daily_screen_time_hours' in processed.columns
-    assert 'd1_daily_screen_time_hours' in processed.columns
     assert 'missing_features_count' in processed.columns
-    assert 'st_mul_sm' in processed.columns
-    assert 'st_div_awake' in processed.columns
-    assert 'st_sub_gm' in processed.columns
-    assert 'st_risk_boundary' in processed.columns
-    assert 'synthetic_budget_violation' in processed.columns
-    assert 'joint_profile_freq' in processed.columns
-    assert 'B_ISAT' in processed.columns
-    assert 'H_AF' in processed.columns
-    assert 'CDUR' in processed.columns
-    assert 'dopamine_chasing_index' in processed.columns
-    assert 'compulsive_checking_density' in processed.columns
 
 def test_engineered_features_zero_division(mock_dataframe):
     # Daily_Screen_Time is 0 for index 1

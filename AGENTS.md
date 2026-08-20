@@ -124,7 +124,7 @@ deterministic pass/fail check.
   1. **Joint Profile Frequency (`joint_profile_freq`):** Scale-invariant `normalize=True` density for `gender + '_' + stress_level + '_' + academic_work_impact`.
   2. **Nonlinear Risk Boundary Distance:** `np.abs(daily_screen_time_hours - 5.5) * (social + gaming) / (24 - sleep_hours)`.
   3. **Group-Normalized Cohort Residuals:** `social_media_hours - groupby(['age', 'gender'])['social_media_hours'].transform('mean')`.
-- **Automated Master Cycle (`src/auto_research_cycle.py`):** Fully integrates sequential reasoning, Google AI Studio feature discovery, residual error diagnostics, and automated Kaggle notebook compilation into a one-command pipeline.
+- **Automated Master Cycle (`.agents/workflows/s6e8-master-cycle.md`):** Authoritative 5-stage competitive ML cycle synthesizing leak-free domain features, 10-fold GBDT training, SLSQP convex ensembling, and automated Kaggle notebook compilation.
 - **Native MCP Directives:** Utilize `google-compute-engine` and `bigquery` for cloud compute, `notebooks` for automated Jupyter synchronization, `sequential-thinking` for deep mathematical synthesis, and `visualization` for residual error diagnostics.
 
 ---
