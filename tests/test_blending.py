@@ -119,3 +119,28 @@ def test_nelder_mead_rank_stacker(mock_predictions):
 
     assert stacker_auc >= best_single_auc - 1e-6, f"Nelder-Mead AUC ({stacker_auc:.5f}) should be >= best single model ({best_single_auc:.5f})"
 
+
+def test_two_stage_hybrid_stacker(mock_predictions):
+    from src.model.solver import TwoStageHybridStacker
+    preds_matrix, y = mock_predictions
+    p_lgb = preds_matrix[:, 0]
+    p_xgb = preds_matrix[:, 1]
+    p_cat = preds_matrix[:, 2]
+    # Synthetic MLP predictions
+    np.random.seed(42)
+    p_nn = np.clip(y * 0.5 + np.random.normal(0.4, 0.25, len(y)), 0.01, 0.99)
+
+    stacker = TwoStageHybridStacker(random_state=42)
+    stacker.fit(p_lgb, p_cat, p_xgb, p_nn, y)
+
+    assert stacker.tree_weights_ is not None
+    assert np.isclose(np.sum(stacker.tree_weights_), 1.0, atol=1e-4)
+    assert 0.0 <= stacker.alpha_ <= 1.0
+
+    preds_final = stacker.predict_proba(p_lgb, p_cat, p_xgb, p_nn)
+    final_auc = roc_auc_score(y, preds_final)
+    best_single = max(roc_auc_score(y, p_lgb), roc_auc_score(y, p_xgb), roc_auc_score(y, p_cat))
+
+    assert final_auc >= best_single - 1e-5
+
+

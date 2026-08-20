@@ -190,6 +190,40 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
             df_clean[f'cohort_diff_{target_c}'] = (target_arr - c_mean).astype(np.float32)
             df_clean[f'cohort_zscore_{target_c}'] = ((target_arr - c_mean) / (c_std + eps)).astype(np.float32)
 
+    # 26. Claude + Gemini 3.1 Pro Crown Jewel Behavioral & CTGAN Seam Formulations
+    # ① Compulsive Pull Ratio (CPR)
+    df_clean['cpr_compulsive_pull_ratio'] = np.where(
+        app_ops.isna() | notifs.isna(),
+        np.nan,
+        (app_ops / (notifs + 1.0))
+    ).astype(np.float32)
+
+    # ② Unaccounted Time Leakage (UTL) - CTGAN Generator Seam Exploitation
+    utl = scr_hrs - (soc_hrs.fillna(0.0) + gam_hrs.fillna(0.0) + wrk_hrs.fillna(0.0))
+    df_clean['utl_unaccounted_time_leakage'] = np.where(scr_hrs.isna(), np.nan, utl).astype(np.float32)
+    df_clean['utl_leakage_ratio'] = np.where(scr_hrs.isna(), np.nan, (utl / (scr_hrs + eps))).astype(np.float32)
+
+    # ③ Weekend Escalation x Stress (WESI)
+    stress_map = {'Low': 1.0, 'Medium': 2.0, 'High': 3.0}
+    if 'stress_level' in df_clean.columns:
+        stress_num = df_clean['stress_level'].map(stress_map).fillna(2.0).astype(np.float32)
+    else:
+        stress_num = pd.Series(2.0, index=df_clean.index, dtype=np.float32)
+    df_clean['wesi_weekend_escalation_stress'] = np.where(
+        wknd_hrs.isna() | scr_hrs.isna(),
+        np.nan,
+        (((wknd_hrs - scr_hrs) / (scr_hrs + eps)) * stress_num)
+    ).astype(np.float32)
+
+    # ④ Sleep Displacement Capacity & Discretionary Monopolization
+    disp_cap = np.clip(24.0 - slp_hrs.fillna(8.0) - wrk_hrs.fillna(0.0), 1.0, 20.0)
+    df_clean['sleep_displacement_capacity'] = disp_cap.astype(np.float32)
+    df_clean['gaming_discretionary_monopolization'] = np.where(
+        gam_hrs.isna(),
+        np.nan,
+        (gam_hrs / (disp_cap + eps))
+    ).astype(np.float32)
+
     # Downcast floats to float32 for maximum memory efficiency
     for col in df_clean.select_dtypes(include=['float64']).columns:
         df_clean[col] = df_clean[col].astype(np.float32)

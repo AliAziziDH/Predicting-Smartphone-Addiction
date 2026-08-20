@@ -402,6 +402,76 @@ class NelderMeadRankStacker:
         return np.dot(preds_matrix, self.weights_)
 
 
+class TwoStageHybridStacker:
+    """
+    Claude + Gemini 3.1 Pro Two-Stage Hybrid Calibration & Ensembling Stacker.
+    Stage A: Logit-weighted Tree Cartel (LightGBM + CatBoost + XGBoost).
+    Stage B: Rank-blended Tree Cartel with Tabular Neural Network (MLP).
+    Optimized via Nelder-Mead with Micro-LogLoss surrogate on ROC-AUC step function.
+    """
+    def __init__(self, random_state: int = 42):
+        self.random_state = random_state
+        self.tree_weights_ = None
+        self.alpha_ = None
+
+    def _to_logit(self, p: np.ndarray) -> np.ndarray:
+        p_c = np.clip(p, 1e-5, 1.0 - 1e-5)
+        return np.log(p_c / (1.0 - p_c))
+
+    def _to_rank(self, p: np.ndarray) -> np.ndarray:
+        from scipy.stats import rankdata
+        return (rankdata(p) - 0.5) / len(p)
+
+    def fit(self, oof_lgb: np.ndarray, oof_cat: np.ndarray, oof_xgb: np.ndarray, oof_nn: np.ndarray, y: np.ndarray):
+        from sklearn.metrics import log_loss
+        z_lgb = self._to_logit(oof_lgb)
+        z_cat = self._to_logit(oof_cat)
+        z_xgb = self._to_logit(oof_xgb)
+        r_nn = self._to_rank(oof_nn)
+        n = len(y)
+
+        def objective(params):
+            w1, w2, w3, alpha = params
+            w_sum = w1 + w2 + w3 + 1e-8
+            w1_n, w2_n, w3_n = w1 / w_sum, w2 / w_sum, w3 / w_sum
+
+            # Stage A: Tree Cartel in Logit space
+            z_tree = w1_n * z_lgb + w2_n * z_cat + w3_n * z_xgb
+            p_tree = 1.0 / (1.0 + np.exp(-z_tree))
+            r_tree = self._to_rank(p_tree)
+
+            # Stage B: Final Rank Blend with MLP
+            p_final = alpha * r_tree + (1.0 - alpha) * r_nn
+            auc = roc_auc_score(y, p_final)
+            loss = log_loss(y, np.clip(p_final, 1e-5, 1.0 - 1e-5))
+            return -auc + 1e-4 * loss
+
+        init_params = [0.33, 0.33, 0.33, 0.80]
+        bounds = [(0, 1), (0, 1), (0, 1), (0, 1)]
+        res = minimize(objective, init_params, method='Nelder-Mead', bounds=bounds)
+
+        w1, w2, w3, alpha = res.x
+        w_sum = w1 + w2 + w3 + 1e-8
+        self.tree_weights_ = np.array([w1 / w_sum, w2 / w_sum, w3 / w_sum], dtype=np.float32)
+        self.alpha_ = float(alpha)
+        return self
+
+    def predict_proba(self, p_lgb: np.ndarray, p_cat: np.ndarray, p_xgb: np.ndarray, p_nn: np.ndarray) -> np.ndarray:
+        if self.tree_weights_ is None:
+            raise ValueError("TwoStageHybridStacker is not fitted yet.")
+        z_lgb = self._to_logit(p_lgb)
+        z_cat = self._to_logit(p_cat)
+        z_xgb = self._to_logit(p_xgb)
+        r_nn = self._to_rank(p_nn)
+
+        z_tree = self.tree_weights_[0] * z_lgb + self.tree_weights_[1] * z_cat + self.tree_weights_[2] * z_xgb
+        p_tree = 1.0 / (1.0 + np.exp(-z_tree))
+        r_tree = self._to_rank(p_tree)
+
+        p_final = self.alpha_ * r_tree + (1.0 - self.alpha_) * r_nn
+        return p_final
+
+
 class EnsembleBlender:
     """Legacy SLSQP Bounded Blender."""
     def __init__(self):

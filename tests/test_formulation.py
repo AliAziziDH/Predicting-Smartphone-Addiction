@@ -112,8 +112,14 @@ def test_engineered_features_shape(mock_dataframe):
     # original has 12 columns
     assert mock_dataframe.shape[1] == 12
     processed = preprocess_and_engineer(mock_dataframe)
-    # output has 12 original + engineered features (including decimal lattice, missingness, clickhouse and bigquery) = 63
-    assert processed.shape[1] == 63
+    # output has 12 original + engineered features (including decimal lattice, missingness, clickhouse, bigquery, and Claude+Gemini Crown Jewel features) = 69
+    assert processed.shape[1] == 69
+    assert 'cpr_compulsive_pull_ratio' in processed.columns
+    assert 'utl_unaccounted_time_leakage' in processed.columns
+    assert 'utl_leakage_ratio' in processed.columns
+    assert 'wesi_weekend_escalation_stress' in processed.columns
+    assert 'sleep_displacement_capacity' in processed.columns
+    assert 'gaming_discretionary_monopolization' in processed.columns
     assert 'sleep_app_opens_ratio' in processed.columns
     assert 'productive_work_ratio' in processed.columns
     assert 'work_adjusted_screen_load' in processed.columns
