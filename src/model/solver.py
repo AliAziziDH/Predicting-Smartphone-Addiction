@@ -380,3 +380,52 @@ class EnsembleBlender:
         self.weights_ = result.x
         return self.weights_
 
+
+def get_or_create_cloud_study(study_name: str = "s6e8_master_study") -> Any:
+    """
+    اتصال به دیتابیس لجر Cloud SQL و راه‌اندازی/بازیابی مطالعه اپتونا با قابلیت Warm-Start
+    """
+    import logging
+    logger = logging.getLogger("OptunaCloudOrchestrator")
+
+    db_user = os.getenv("CLOUD_SQL_USER", "postgres")
+    db_pass = os.getenv("CLOUD_SQL_PASSWORD", "your-secure-password")
+    db_name = os.getenv("CLOUD_SQL_DB", "optuna_ledger")
+    db_host = os.getenv("CLOUD_SQL_HOST")  # آی‌پی داخلی اینستنس Cloud SQL
+
+    try:
+        import optuna
+        from optuna.storages import RDBStorage
+    except ImportError:
+        logger.warning("⚠️ کتابخانه optuna نصب نیست. لطفاً آن را نصب کنید.")
+        return None
+
+    if not db_host:
+        logger.warning("⚠️ آی‌پی Cloud SQL یافت نشد. در حال استفاده از مود InMemory موقت...")
+        return optuna.create_study(direction="maximize")
+
+    # ساخت URL اتصال استاندارد PostgreSQL برای اپتونا
+    database_url = f"postgresql+psycopg2://{db_user}:{db_pass}@{db_host}:5432/{db_name}"
+
+    # پیکربندی مخزن داده رابطه‌ای (RDBStorage)
+    storage = RDBStorage(
+        url=database_url,
+        engine_kwargs={
+            "pool_size": 10,
+            "max_overflow": 20,
+            "pool_pre_ping": True  # بررسی زنده بودن کانکشن قبل از ارسال کوئری
+        }
+    )
+
+    logger.info(f"🔄 در حال بررسی وضعیت مطالعه [{study_name}] روی لجر ابری...")
+    study = optuna.create_study(
+        study_name=study_name,
+        direction="maximize",
+        storage=storage,
+        load_if_exists=True    # 👈 کلید طلایی Warm-Start: بازیابی خودکار از ادامه تریال‌ها
+    )
+
+    logger.info(f"✅ مطالعه با موفقیت بازیابی/ایجاد شد. تعداد تریال‌های ثبت شده فعلی: {len(study.trials)}")
+    return study
+
+
