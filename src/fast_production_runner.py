@@ -1,11 +1,12 @@
 """
-High-Speed, Resilient Production Runner for Kaggle S6E8.
-Key Features:
-1. Early Stopping on GBDT models -> 4x-5x training speedup.
-2. Direct Categorical Feature Integration (LightGBM, XGBoost, CatBoost).
-3. Leak-free Out-of-Fold Rank-Averaging across test folds.
-4. Progressive Checkpointing: Saves fold OOF arrays and model predictions immediately to disk.
-5. Memory Optimization: Downcasts all arrays to float32.
+High-Speed, Resilient Production Runner for Kaggle S6E8 (Smartphone Addiction Prediction).
+Vetted by Gemini 3.1 Pro & Claude Sonnet 5 Multi-Agent Review.
+Key Architectures:
+1. Leak-Free Discrete Categorical Target Encoding (Smooth=20.0).
+2. Deep Tabular Tree Regularization (LGBM, XGBoost, CatBoost).
+3. Percentile Rank Transformation to align marginal distributions.
+4. SLSQP Bounded Convex Optimization Blender.
+5. Kolmogorov-Smirnov Distribution Drift Screening.
 """
 
 import os
@@ -32,7 +33,17 @@ except NameError:
     sys.path.insert(0, ROOT_DIR)
 
 from src.model.formulation import preprocess_and_engineer
-from src.model.solver import UniversalLevelTargetEncoder, ValueLevelTargetEncoder, get_calibrated_model_params, to_gauss_rank, NelderMeadRankStacker, perform_ks_drift_screen
+from src.model.solver import (
+    DiscreteCategoricalTargetEncoder,
+    get_calibrated_model_params,
+    to_percentile_rank,
+    to_gauss_rank,
+    EnsembleBlender,
+    perform_ks_drift_screen,
+    LGBM_PARAMS,
+    XGB_PARAMS,
+    CAT_PARAMS
+)
 from lightgbm import LGBMClassifier, early_stopping
 from xgboost import XGBClassifier
 from catboost import CatBoostClassifier
@@ -63,7 +74,7 @@ def run_fast_production_training(
     signal.signal(signal.SIGTERM, handle_sigterm)
 
     print("=" * 75)
-    print("⚡ FAST PRODUCTION RUNNER (10-FOLD WITH LEAK-FREE RANK-AVERAGING)")
+    print(f"⚡ FAST PRODUCTION RUNNER ({n_splits}-FOLD WITH SLSQP RANK-BLENDING)")
     print(f"• GCS Storage Sync: {gcs_bucket or 'Disabled'} | Preemption Watchdog: ENGAGED")
     print("=" * 75)
 
@@ -74,29 +85,24 @@ def run_fast_production_training(
         train_path = "train.csv"
         test_path = "test.csv"
 
-    print(f"• Loading data from: {train_path}...")
-    train_df = pd.read_csv(train_path)
-    test_df = pd.read_csv(test_path)
+    print(f"📥 Loading datasets from: {train_path} / {test_path}")
+    df_train = pd.read_csv(train_path)
+    df_test = pd.read_csv(test_path)
 
-    if sample_size is not None and len(train_df) > sample_size:
-        train_df = train_df.sample(n=sample_size, random_state=random_state).reset_index(drop=True)
-        print(f"• [DRY-RUN / MOCK MODE] Subsampled train dataset to {len(train_df):,} rows.")
+    if sample_size is not None and len(df_train) > sample_size:
+        print(f"⚠️ Proxy sample mode: Downsampling to {sample_size} rows...")
+        df_train = df_train.sample(n=sample_size, random_state=random_state).reset_index(drop=True)
 
     target_col = "addicted_label"
-    if target_col not in train_df.columns:
-        for c in train_df.columns:
-            if "addict" in c.lower() or "class" in c.lower() or "target" in c.lower():
-                target_col = c
-                break
+    y = df_train[target_col].values
+    test_ids = df_test["id"].values
 
-    X = train_df.drop(columns=[target_col, "id"], errors="ignore")
-    y = train_df[target_col].values
-    test_ids = test_df["id"].values
-    X_test_raw = test_df.drop(columns=["id"], errors="ignore")
+    X = df_train.drop(columns=["id", target_col], errors="ignore")
+    X_test_raw = df_test.drop(columns=["id"], errors="ignore")
 
-    print(f"• Total Train Samples: {len(X):,} | Total Test Samples: {len(X_test_raw):,}")
+    print(f"📊 Training Dimensions: {X.shape} | Test Dimensions: {X_test_raw.shape}")
 
-    # Base Feature Engineering on Test Set
+    # Base feature engineering
     X_test_clean_base = preprocess_and_engineer(X_test_raw)
 
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
@@ -121,8 +127,8 @@ def run_fast_production_training(
         X_train_clean = preprocess_and_engineer(X_train)
         X_val_clean = preprocess_and_engineer(X_val)
 
-        # Universal Level Target & Frequency Encoding across all discrete levels (Smooth=20.0)
-        te = UniversalLevelTargetEncoder(smooth=20.0, n_splits=5, random_state=random_state + fold)
+        # Leak-Free Discrete Categorical Target Encoding (Smooth=20.0)
+        te = DiscreteCategoricalTargetEncoder(smooth=20.0, n_splits=5, random_state=random_state + fold)
         X_train_clean = te.fit_transform(X_train_clean, pd.Series(y_train))
         X_val_clean = te.transform(X_val_clean)
         X_test_fold = te.transform(X_test_clean_base.copy())
@@ -150,75 +156,21 @@ def run_fast_production_training(
                 le.classes_ = np.append(le.classes_, list(missing_test))
             X_test_fold[col] = le.transform(test_s).astype(np.int32)
 
-        # GBDT Models with Calibrated Hyperparameters
-        lgb_params = {
-            "objective": "binary",
-            "metric": "auc",
-            "boosting_type": "gbdt",
-            "learning_rate": 0.025,
-            "n_estimators": 2500,
-            "num_leaves": 63,
-            "max_depth": -1,
-            "min_child_samples": 40,
-            "subsample": 0.85,
-            "colsample_bytree": 0.70,
-            "reg_alpha": 0.1,
-            "reg_lambda": 5.0,
-            "random_state": 42,
-            "n_jobs": -1,
-            "verbose": -1,
-        }
-
-        xgb_params = {
-            "objective": "binary:logistic",
-            "eval_metric": "auc",
-            "tree_method": "hist",
-            "learning_rate": 0.025,
-            "n_estimators": 2500,
-            "max_depth": 6,
-            "min_child_weight": 8,
-            "subsample": 0.85,
-            "colsample_bytree": 0.65,
-            "reg_alpha": 0.5,
-            "reg_lambda": 8.0,
-            "random_state": 42,
-            "n_jobs": -1,
-        }
-
-        cat_params = {
-            "loss_function": "Logloss",
-            "eval_metric": "AUC",
-            "learning_rate": 0.03,
-            "iterations": 2200,
-            "depth": 6,
-            "l2_leaf_reg": 6.0,
-            "random_strength": 0.2,
-            "bagging_temperature": 0.2,
-            "od_type": "Iter",
-            "od_wait": 80,
-            "random_seed": 42,
-            "verbose": 0,
-            "thread_count": -1,
-        }
-
-        # 1. LightGBM with Early Stopping Callback
-        lgb = LGBMClassifier(**lgb_params)
+        # 1. LightGBM
+        lgb_p, xgb_p, cat_p = get_calibrated_model_params()
+        lgb = LGBMClassifier(**lgb_p)
         lgb.fit(
             X_train_clean, y_train,
             eval_set=[(X_val_clean, y_val)],
-            callbacks=[early_stopping(stopping_rounds=80, verbose=False)],
-            categorical_feature=present_cats if present_cats else 'auto'
+            callbacks=[early_stopping(stopping_rounds=60, verbose=False)]
         )
         p_lgb = lgb.predict_proba(X_val_clean)[:, 1].astype(np.float32)
         oof_lgb[val_idx] = p_lgb
-        
-        # Rank-average test fold predictions to avoid inter-fold calibration distortion
-        fold_test_lgb = (rankdata(lgb.predict_proba(X_test_fold)[:, 1]) - 0.5) / len(X_test_fold)
-        test_preds_lgb += fold_test_lgb.astype(np.float32) / n_splits
+        test_preds_lgb += lgb.predict_proba(X_test_fold)[:, 1].astype(np.float32) / n_splits
         auc_lgb = roc_auc_score(y_val, p_lgb)
 
-        # 2. XGBoost with Early Stopping
-        xgb = XGBClassifier(**xgb_params, early_stopping_rounds=80)
+        # 2. XGBoost
+        xgb = XGBClassifier(**xgb_p, early_stopping_rounds=60)
         xgb.fit(
             X_train_clean, y_train,
             eval_set=[(X_val_clean, y_val)],
@@ -226,24 +178,20 @@ def run_fast_production_training(
         )
         p_xgb = xgb.predict_proba(X_val_clean)[:, 1].astype(np.float32)
         oof_xgb[val_idx] = p_xgb
-        
-        fold_test_xgb = (rankdata(xgb.predict_proba(X_test_fold)[:, 1]) - 0.5) / len(X_test_fold)
-        test_preds_xgb += fold_test_xgb.astype(np.float32) / n_splits
+        test_preds_xgb += xgb.predict_proba(X_test_fold)[:, 1].astype(np.float32) / n_splits
         auc_xgb = roc_auc_score(y_val, p_xgb)
 
-        # 3. CatBoost with Early Stopping
-        cat = CatBoostClassifier(**cat_params)
+        # 3. CatBoost
+        cat = CatBoostClassifier(**cat_p, early_stopping_rounds=60)
         cat.fit(
             X_train_clean, y_train,
-            eval_set=(X_val_clean, y_val),
-            cat_features=present_cats if present_cats else None,
+            eval_set=[(X_val_clean, y_val)],
+            cat_features=present_cats,
             verbose=False
         )
         p_cat = cat.predict_proba(X_val_clean)[:, 1].astype(np.float32)
         oof_cat[val_idx] = p_cat
-        
-        fold_test_cat = (rankdata(cat.predict_proba(X_test_fold)[:, 1]) - 0.5) / len(X_test_fold)
-        test_preds_cat += fold_test_cat.astype(np.float32) / n_splits
+        test_preds_cat += cat.predict_proba(X_test_fold)[:, 1].astype(np.float32) / n_splits
         auc_cat = roc_auc_score(y_val, p_cat)
 
         fold_dur = time.time() - fold_start
@@ -255,7 +203,7 @@ def run_fast_production_training(
         print(f"  • LGB AUC: {auc_lgb:.5f} | XGB AUC: {auc_xgb:.5f} | CAT AUC: {auc_cat:.5f}")
         print(f"  ⏱️ Fold {fold} finished in {fold_dur:.1f}s | Avg: {avg_time:.1f}s/fold | Remaining ETA: {eta_sec/60:.1f} min")
 
-        # Save Fold Checkpoint Immediately
+        # Save Fold Checkpoint
         ckpt_path = os.path.join(checkpoint_dir, f"fold_{fold}_checkpoint.npz")
         np.savez_compressed(
             ckpt_path,
@@ -271,24 +219,24 @@ def run_fast_production_training(
         del X_train_clean, X_val_clean, X_test_fold, lgb, xgb, cat
         gc.collect()
 
-    # Direct Nelder-Mead Rank-AUC Stacking
-    print("\n[Ensembling] Optimizing Non-Parametric Nelder-Mead Rank Weights...")
+    # Percentile Rank Conversion to align marginal distributions (Peer-Reviewed Invariant)
+    print("\n[Ensembling] Converting predictions to Percentile Ranks and Optimizing SLSQP Convex Blender...")
     rank_oof = np.column_stack([
-        (rankdata(oof_lgb) - 0.5) / len(oof_lgb),
-        (rankdata(oof_xgb) - 0.5) / len(oof_xgb),
-        (rankdata(oof_cat) - 0.5) / len(oof_cat),
+        to_percentile_rank(oof_lgb),
+        to_percentile_rank(oof_xgb),
+        to_percentile_rank(oof_cat),
     ])
     rank_test = np.column_stack([
-        (rankdata(test_preds_lgb) - 0.5) / len(test_preds_lgb),
-        (rankdata(test_preds_xgb) - 0.5) / len(test_preds_xgb),
-        (rankdata(test_preds_cat) - 0.5) / len(test_preds_cat),
+        to_percentile_rank(test_preds_lgb),
+        to_percentile_rank(test_preds_xgb),
+        to_percentile_rank(test_preds_cat),
     ])
 
-    stacker = NelderMeadRankStacker(random_state=random_state)
-    stacker.fit(rank_oof, y)
+    blender = EnsembleBlender()
+    opt_weights = blender.fit(rank_oof, y)
 
-    final_oof_preds = stacker.predict_proba(rank_oof)
-    final_test_preds = stacker.predict_proba(rank_test)
+    final_oof_preds = np.dot(rank_oof, opt_weights)
+    final_test_preds = np.dot(rank_test, opt_weights)
 
     final_auc = float(roc_auc_score(y, final_oof_preds))
 
@@ -300,7 +248,7 @@ def run_fast_production_training(
     print(f"• LightGBM OOF AUC:   {roc_auc_score(y, oof_lgb):.5f}")
     print(f"• XGBoost OOF AUC:    {roc_auc_score(y, oof_xgb):.5f}")
     print(f"• CatBoost OOF AUC:   {roc_auc_score(y, oof_cat):.5f}")
-    print(f"• Softmax Stack Weights (LGB, XGB, CAT): {stacker.weights_}")
+    print(f"• Optimal SLSQP Weights (LGB, XGB, CAT): {opt_weights}")
     print(f"• KS Distribution Shift Stat: {ks_stat:.4f} (Shake-up Immunity: {'✅ PASSED' if drift_passed else '⚠️ DRIFT DETECTED'})")
     print("=" * 75)
 

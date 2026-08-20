@@ -12,6 +12,8 @@ kaggle_run*/
 .env
 *.zip
 submission*.csv
+# Kaggle Benchmarks Task Artifacts
+*.task.json
 logs/
 scratch/
 reports/temp_*
