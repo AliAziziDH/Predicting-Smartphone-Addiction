@@ -86,12 +86,11 @@ class LeakFreeOptunaTuner:
                     mode_val = "Unknown"
                 X_train_clean[col] = X_train_clean[col].fillna(mode_val)
                 X_val_clean[col] = X_val_clean[col].fillna(mode_val)
-
             # 2. Categorical Encoding localized to the fold
             oe = OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1)
             if len(cat_cols) > 0:
-                X_train_clean[cat_cols] = oe.fit_transform(X_train_clean[cat_cols].astype(str))
-                X_val_clean[cat_cols] = oe.transform(X_val_clean[cat_cols].astype(str))
+                X_train_clean[cat_cols] = oe.fit_transform(X_train_clean[cat_cols].astype(str)).astype(np.int8)
+                X_val_clean[cat_cols] = oe.transform(X_val_clean[cat_cols].astype(str)).astype(np.int8)
 
             # --- Modeling ---
             if model_type == 'lgb':
@@ -150,8 +149,11 @@ class LeakFreeOptunaTuner:
         logger.info(f"Running Optuna study for {model_type} with {n_trials} trials...")
         X_proxy, y_proxy = self._stratified_downsample(X, y, ratio=self.downsample_ratio)
         logger.info(f"Using proxy dataset of size {len(X_proxy)} (ratio: {self.downsample_ratio})")
-
-        study = optuna.create_study(direction='maximize', study_name=f"{model_type}_tuning")
+        db_url = os.environ.get('OPTUNA_DB_URL', None)
+        if db_url:
+            study = optuna.create_study(direction='maximize', study_name=f"{model_type}_tuning", storage=db_url, load_if_exists=True)
+        else:
+            study = optuna.create_study(direction='maximize', study_name=f"{model_type}_tuning")
         study.optimize(lambda trial: self.objective(trial, X_proxy, y_proxy, model_type), n_trials=n_trials)
 
         logger.info(f"Best trial for {model_type}: AUC={study.best_value:.4f}")

@@ -250,12 +250,13 @@ class CompetitionSolver:
                 train_series = X_train_clean[col].fillna('Missing').astype(str)
                 val_series = X_val_clean[col].fillna('Missing').astype(str)
 
-                X_train_clean[col] = le.fit_transform(train_series)
+
+                X_train_clean[col] = le.fit_transform(train_series).astype(np.int8)
                 val_classes = list(set(val_series.tolist()))
                 missing_classes = set(val_classes) - set(le.classes_)
                 if missing_classes:
                     le.classes_ = np.append(le.classes_, list(missing_classes))
-                X_val_clean[col] = le.transform(val_series)
+                X_val_clean[col] = le.transform(val_series).astype(np.int8)
                 encoders[col] = le
 
             self.fold_encoders.append({
@@ -349,37 +350,6 @@ class LogisticStacker:
         return self.model.predict_proba(preds_matrix)[:, 1]
 
 
-class EnsembleBlender:
-    """
-    SLSQP Bounded Convex Optimization Blender.
-    Finds optimal non-negative weights (sum=1.0, w_i >= 0) to maximize ROC-AUC.
-    """
-    def __init__(self):
-        self.weights_ = None
-
-    def _objective(self, weights: np.ndarray, preds_matrix: np.ndarray, y: np.ndarray) -> float:
-        blend_preds = np.dot(preds_matrix, weights)
-        return -roc_auc_score(y, blend_preds)
-
-    def fit(self, preds_matrix: np.ndarray, y: np.ndarray) -> np.ndarray:
-        n_models = preds_matrix.shape[1]
-        init_weights = np.ones(n_models) / n_models
-        bounds = [(0.0, 1.0) for _ in range(n_models)]
-        constraints = [{'type': 'eq', 'fun': lambda w: np.sum(w) - 1.0}]
-
-        result = minimize(
-            self._objective,
-            x0=init_weights,
-            args=(preds_matrix, y),
-            method='SLSQP',
-            bounds=bounds,
-            constraints=constraints,
-            options={'disp': False}
-        )
-        self.weights_ = result.x
-        return self.weights_
-
-
 class NelderMeadRankStacker:
     """Non-Parametric Nelder-Mead Rank-AUC Optimizer with Softmax Projection."""
     def __init__(self, random_state: int = 42):
@@ -414,7 +384,7 @@ class NelderMeadRankStacker:
         return np.dot(preds_matrix, self.weights_)
 
 
-class TwoStageHybridStacker:
+class EnsembleBlender:
     """Two-Stage Robust Blending Stacker."""
     def __init__(self, random_state: int = 42):
         self.random_state = random_state
@@ -429,7 +399,6 @@ class TwoStageHybridStacker:
         r_cat = self._to_rank(oof_cat)
         r_xgb = self._to_rank(oof_xgb)
         r_nn = self._to_rank(oof_nn)
-
         def objective(params):
             w1, w2, w3, alpha = params
             w_sum = w1 + w2 + w3 + 1e-8
@@ -437,9 +406,17 @@ class TwoStageHybridStacker:
 
             r_tree = w1_n * r_lgb + w2_n * r_cat + w3_n * r_xgb
             p_final = alpha * r_tree + (1.0 - alpha) * r_nn
-            return -roc_auc_score(y, p_final)
 
-        init_params = [0.33, 0.33, 0.33, 0.85]
+            # Tie-breaking surrogate loss: Loss = -AUC + 10^-4 * LogLoss
+            from sklearn.metrics import log_loss
+            # Log loss requires valid probability distributions, so we clip p_final
+            p_clipped = np.clip(p_final, 1e-7, 1.0 - 1e-7)
+            auc_score = roc_auc_score(y, p_clipped)
+            logloss = log_loss(y, p_clipped)
+            return -auc_score + 1e-4 * logloss
+
+
+        init_params = [0.33, 0.33, 0.33, 0.8]
         bounds = [(0, 1), (0, 1), (0, 1), (0, 1)]
         res = minimize(objective, init_params, method='Nelder-Mead', bounds=bounds)
 
