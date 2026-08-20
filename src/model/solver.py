@@ -149,33 +149,44 @@ class UniversalLevelTargetEncoder:
 
         levels_df = self._make_levels(X)
         cols_present = levels_df.columns.tolist()
+        y_arr = y.to_numpy(dtype=np.float64)
 
-        # Global mapping for validation / inference
-        for col in cols_present:
-            lvl_col = levels_df[col]
-            stats = y.groupby(lvl_col).agg(['count', 'sum'])
-            col_map = ((stats['sum'] + self.smooth * self.global_mean) / (stats['count'] + self.smooth)).to_dict()
-            freq_map = (lvl_col.value_counts(normalize=True)).to_dict()
-            self.te_mapping[col] = col_map
-            self.freq_mapping[col] = freq_map
-
-        # Internal K-Fold Out-of-Fold encoding for training
         skf = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state)
+        splits = list(skf.split(X, y))
+
         for col in cols_present:
+            codes, uniques = pd.factorize(levels_df[col].values)
+            n_uniques = len(uniques)
+
+            # Global mapping
+            counts = np.bincount(codes, minlength=n_uniques)
+            sums = np.bincount(codes, weights=y_arr, minlength=n_uniques)
+            smoothed_global = (sums + self.smooth * self.global_mean) / (counts + self.smooth)
+            freqs_global = counts / len(codes)
+
+            self.te_mapping[col] = dict(zip(uniques, smoothed_global))
+            self.freq_mapping[col] = dict(zip(uniques, freqs_global))
+
+            # Fast Out-of-Fold computation via vectorized NumPy arrays
             oof_te = np.zeros(len(X), dtype=np.float32)
             oof_freq = np.zeros(len(X), dtype=np.float32)
-            for tr_idx, val_idx in skf.split(X, y):
-                lvl_tr = levels_df.iloc[tr_idx][col]
-                lvl_vl = levels_df.iloc[val_idx][col]
-                y_tr = y.iloc[tr_idx]
 
-                tr_mean = float(y_tr.mean())
-                stats_tr = y_tr.groupby(lvl_tr).agg(['count', 'sum'])
-                map_tr = ((stats_tr['sum'] + self.smooth * tr_mean) / (stats_tr['count'] + self.smooth)).to_dict()
-                freq_tr = (lvl_tr.value_counts(normalize=True)).to_dict()
+            for tr_idx, val_idx in splits:
+                tr_codes = codes[tr_idx]
+                tr_y = y_arr[tr_idx]
+                tr_mean = float(tr_y.mean())
 
-                oof_te[val_idx] = lvl_vl.map(map_tr).fillna(tr_mean).values.astype(np.float32)
-                oof_freq[val_idx] = lvl_vl.map(freq_tr).fillna(0.0).values.astype(np.float32)
+                tr_counts = np.bincount(tr_codes, minlength=n_uniques)
+                tr_sums = np.bincount(tr_codes, weights=tr_y, minlength=n_uniques)
+
+                mask_observed = tr_counts > 0
+                tr_smoothed = np.full(n_uniques, tr_mean, dtype=np.float32)
+                tr_smoothed[mask_observed] = (tr_sums[mask_observed] + self.smooth * tr_mean) / (tr_counts[mask_observed] + self.smooth)
+                tr_freqs = (tr_counts / len(tr_codes)).astype(np.float32)
+
+                val_codes = codes[val_idx]
+                oof_te[val_idx] = tr_smoothed[val_codes]
+                oof_freq[val_idx] = tr_freqs[val_codes]
 
             X_out[f'{col}_lvl_te'] = oof_te
             X_out[f'{col}_lvl_freq'] = oof_freq
