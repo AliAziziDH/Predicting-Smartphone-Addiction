@@ -119,16 +119,27 @@ class UniversalLevelTargetEncoder:
         self.smooth = smooth
         self.n_splits = n_splits
         self.random_state = random_state
+        self.cat_pairs = [
+            ('gender', 'stress_level'),
+            ('gender', 'academic_work_impact'),
+            ('stress_level', 'academic_work_impact'),
+        ]
         self.global_mean = 0.5
         self.te_mapping = {}
         self.freq_mapping = {}
 
     def _make_levels(self, df: pd.DataFrame) -> pd.DataFrame:
         cols_present = [c for c in self.cols if c in df.columns]
-        return pd.DataFrame({
+        levels_dict = {
             c: df[c].astype(object).fillna('__missing__').astype(str).values
             for c in cols_present
-        }, index=df.index)
+        }
+        for c1, c2 in self.cat_pairs:
+            if c1 in df.columns and c2 in df.columns:
+                v1 = df[c1].astype(object).fillna('__missing__').astype(str).values
+                v2 = df[c2].astype(object).fillna('__missing__').astype(str).values
+                levels_dict[f'{c1}_{c2}'] = (v1 + '_' + v2)
+        return pd.DataFrame(levels_dict, index=df.index)
 
     def fit_transform(self, X: pd.DataFrame, y: pd.Series) -> pd.DataFrame:
         X_out = X.copy()

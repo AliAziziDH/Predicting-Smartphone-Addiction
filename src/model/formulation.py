@@ -233,7 +233,24 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
     existing_raw = [c for c in raw_num_cols if c in df_clean.columns]
     df_clean['missing_features_count'] = df_clean[existing_raw].isna().sum(axis=1).astype(np.float32)
 
-    # 24. High-Performance Memory Downcasting (reduces RAM from 1.2GB to <300MB on 690k rows)
+    # 24. ClickHouse Top Mathematical Interactions (Wave 10)
+    df_clean['st_mul_sm'] = (scr_hrs * soc_hrs).astype(np.float32)
+    df_clean['st_div_awake'] = (scr_hrs / (awake_hrs + eps)).astype(np.float32)
+    df_clean['st_sub_gm'] = (scr_hrs - gam_hrs).astype(np.float32)
+    df_clean['st_risk_boundary'] = ((scr_hrs - 5.5) * (soc_hrs + gam_hrs)).astype(np.float32)
+    df_clean['screen_intensity'] = ((app_ops * scr_hrs) / (awake_hrs + eps)).astype(np.float32)
+
+    # 25. BigQuery Group Cohort Residuals (Wave 10)
+    if 'age' in df_clean.columns and 'gender' in df_clean.columns:
+        cohort_key = df_clean['age'].astype(str) + '_' + df_clean['gender'].astype(str)
+        for target_c, target_arr in [('st', scr_hrs), ('sm', soc_hrs)]:
+            s = pd.Series(target_arr)
+            c_mean = s.groupby(cohort_key).transform('mean').to_numpy(dtype=np.float32)
+            c_std = s.groupby(cohort_key).transform('std').fillna(1.0).to_numpy(dtype=np.float32)
+            df_clean[f'cohort_diff_{target_c}'] = (target_arr - c_mean).astype(np.float32)
+            df_clean[f'cohort_zscore_{target_c}'] = ((target_arr - c_mean) / (c_std + eps)).astype(np.float32)
+
+    # 26. High-Performance Memory Downcasting (reduces RAM from 1.2GB to <300MB on 690k rows)
     for col in df_clean.select_dtypes(include=['float64']).columns:
         df_clean[col] = df_clean[col].astype(np.float32)
     for col in df_clean.select_dtypes(include=['int64']).columns:

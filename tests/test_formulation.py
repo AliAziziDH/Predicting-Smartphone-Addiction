@@ -112,8 +112,8 @@ def test_engineered_features_shape(mock_dataframe):
     # original has 12 columns
     assert mock_dataframe.shape[1] == 12
     processed = preprocess_and_engineer(mock_dataframe)
-    # output has 12 original + engineered features (including decimal lattice and missingness) = 54
-    assert processed.shape[1] == 54
+    # output has 12 original + engineered features (including decimal lattice, missingness, clickhouse and bigquery) = 63
+    assert processed.shape[1] == 63
     assert 'sleep_app_opens_ratio' in processed.columns
     assert 'productive_work_ratio' in processed.columns
     assert 'work_adjusted_screen_load' in processed.columns
@@ -121,8 +121,10 @@ def test_engineered_features_shape(mock_dataframe):
     assert 'frac_daily_screen_time_hours' in processed.columns
     assert 'd1_daily_screen_time_hours' in processed.columns
     assert 'missing_features_count' in processed.columns
-    assert 'circadian_dopamine_strain' in processed.columns
-    assert 'synthetic_budget_deficit' in processed.columns
+    assert 'st_mul_sm' in processed.columns
+    assert 'st_div_awake' in processed.columns
+    assert 'st_sub_gm' in processed.columns
+    assert 'st_risk_boundary' in processed.columns
     assert 'synthetic_budget_violation' in processed.columns
     assert 'joint_profile_freq' in processed.columns
     assert 'B_ISAT' in processed.columns
