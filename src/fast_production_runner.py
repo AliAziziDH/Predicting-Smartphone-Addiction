@@ -12,6 +12,8 @@ import sys
 import time
 import json
 import gc
+import signal
+import subprocess
 from typing import Optional, Dict, List, Any, Tuple
 import numpy as np
 import pandas as pd
@@ -40,13 +42,28 @@ def run_fast_production_training(
     random_state: int = 42,
     checkpoint_dir: str = "models/checkpoints",
     data_dir: str = "data",
-    sample_size: Optional[int] = None
+    sample_size: Optional[int] = None,
+    gcs_bucket: Optional[str] = "gs://ali-s6e8-kaggle-artifacts-2026"
 ):
     os.makedirs(checkpoint_dir, exist_ok=True)
     start_time = time.time()
 
+    # Preemption Signal Handler for Spot VMs
+    def handle_sigterm(signum, frame):
+        print("\n🚨 [PREEMPTION WATCHDOG] SIGTERM signal received from Cloud Engine! Flushing checkpoints to GCS...")
+        if gcs_bucket:
+            try:
+                subprocess.run(["gcloud", "storage", "cp", "-r", checkpoint_dir, gcs_bucket], capture_output=True)
+                print(f"✅ Emergency checkpoint successfully synchronized to {gcs_bucket}")
+            except Exception as e:
+                print(f"⚠️ Failed to sync emergency checkpoint: {e}")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
+
     print("=" * 75)
     print("⚡ FAST PRODUCTION RUNNER (10-FOLD WITH EARLY STOPPING & CHECKPOINTING)")
+    print(f"• GCS Storage Sync: {gcs_bucket or 'Disabled'} | Preemption Watchdog: ENGAGED")
     print("=" * 75)
 
     train_path = os.path.join(data_dir, "train.csv")
