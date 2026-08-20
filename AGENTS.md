@@ -29,17 +29,17 @@ enforces a separation of concerns, strictly decoupling the predictive layer from
 
 ---
 
-## 🔌 Stateless MCP 2.0 & Token Economy Directives
-- **Model Context Protocol (Spec 2026-07-28):** All tools and agent interactions
-  use stateless execution.
-- **Tools Tax Elimination (Tool Attention):** Do not load raw JSON Schemas of all
-  tools. Utilize compact tool summaries (<60 tokens) for initial discovery.
-- **Code Execution on MCP:** Write compact, self-contained Python scripts that
-  execute local tool chains in a sandboxed executor, reducing input token
-  overhead by 78.5% and costs by 70%.
-- **Explicit Handles:** Return explicit resource identifiers (e.g., `dataset_id`,
-  `model_id`) in tool outputs and require the agent to pass them back in later
-  calls, keeping the system serverless-friendly.
+## 🔌 Stateless MCP 2.0 & Mandatory MCP-First Protocol (Spec 2026)
+- **MCP-First Decision Invariant (Strictly Enforced):**
+  Before proposing or writing ANY scratch Python script or executing raw shell commands, the agent MUST check the MCP tool catalog. If an MCP server tool is available, it MUST be called natively via `call_mcp_tool` or eager MCP tools.
+  1. **Compute & Instances:** Use `google-compute-engine` (`get_instance_basic_info`, `list_instances`, `create_instance`, `delete_instance`).
+  2. **Logging & Monitoring:** Use `google-cloud-logging` (`list_log_entries`) and `google-cloud-monitoring` (`list_timeseries`).
+  3. **Feature Storage:** Use `google-cloud-firestore` to store AST schemas and feature dictionaries.
+  4. **Data Analytics:** Use `clickhouse` and `bigquery` for high-dimensional matrix screening.
+  5. **Version Control:** Use `github-mcp-server` for commits, PRs, and branch synchronization.
+  6. **Reasoning & Visualization:** Use `sequential-thinking` for multi-step Bayesian reasoning and `visualization` for residual error plots.
+- **Zero Workspace Pollution Rule:** Never create one-off throwaway scripts in the workspace root. Keep the repository pristine.
+- **Tools Tax Elimination (Tool Attention):** Do not load raw JSON Schemas of all tools. Utilize compact tool summaries (<60 tokens) for initial discovery.
 
 ---
 
