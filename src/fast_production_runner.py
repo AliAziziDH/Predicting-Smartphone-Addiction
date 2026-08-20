@@ -253,12 +253,14 @@ def run_fast_production_training(
     print(f"• KS Distribution Shift Stat: {ks_stat:.4f} (Shake-up Immunity: {'✅ PASSED' if drift_passed else '⚠️ DRIFT DETECTED'})")
     print("=" * 75)
 
-    # Save Final Submission
+    # Save Final Submission (Strict [0.0, 1.0] calibrated probabilities)
+    from scipy.stats import norm
+    calibrated_test_preds = norm.cdf(final_test_preds)
     sub = pd.DataFrame({
         "id": test_ids,
-        target_col: final_test_preds
+        target_col: calibrated_test_preds
     })
-    sub_path = "submission_elite_wave8.csv"
+    sub_path = "submission_elite_wave9.csv"
     sub.to_csv(sub_path, index=False)
     print(f"✅ Final Production Submission saved: {sub_path} (Shape: {sub.shape})")
 
