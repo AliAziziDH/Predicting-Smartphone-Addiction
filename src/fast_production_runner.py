@@ -223,8 +223,8 @@ def run_fast_production_training(
         test_preds_xgb += xgb.predict_proba(X_test_fold)[:, 1].astype(np.float32) / n_splits
         auc_xgb = roc_auc_score(y_val, p_xgb)
 
-        # 3. CatBoost with Early Stopping
-        cat = CatBoostClassifier(**cat_params, early_stopping_rounds=80)
+        # 3. CatBoost with Early Stopping (via od_type and od_wait in cat_params)
+        cat = CatBoostClassifier(**cat_params)
         cat.fit(
             X_train_clean, y_train,
             eval_set=(X_val_clean, y_val),
