@@ -121,8 +121,8 @@ def run_fast_production_training(
         X_train_clean = preprocess_and_engineer(X_train)
         X_val_clean = preprocess_and_engineer(X_val)
 
-        # Universal Level Target & Frequency Encoding across all discrete levels
-        te = UniversalLevelTargetEncoder(smooth=10.0, n_splits=5, random_state=random_state + fold)
+        # Universal Level Target & Frequency Encoding across all discrete levels (Smooth=20.0)
+        te = UniversalLevelTargetEncoder(smooth=20.0, n_splits=5, random_state=random_state + fold)
         X_train_clean = te.fit_transform(X_train_clean, pd.Series(y_train))
         X_val_clean = te.transform(X_val_clean)
         X_test_fold = te.transform(X_test_clean.copy())
@@ -148,27 +148,63 @@ def run_fast_production_training(
                 le.classes_ = np.append(le.classes_, list(missing_test))
             X_test_fold[col] = le.transform(test_s)
 
-        # GBDT Models with High-Throughput Hist & Early Stopping
-        lgb_params, xgb_params, cat_params = get_calibrated_model_params()
-        lgb_params["n_estimators"] = 800
-        lgb_params["learning_rate"] = 0.04
-        lgb_params["n_jobs"] = -1
+        # GBDT Models with Calibrated Hyperparameters (StudioEngine Spec)
+        lgb_params = {
+            "objective": "binary",
+            "metric": "auc",
+            "boosting_type": "gbdt",
+            "learning_rate": 0.025,
+            "n_estimators": 2500,
+            "num_leaves": 63,
+            "max_depth": -1,
+            "min_child_samples": 40,
+            "subsample": 0.85,
+            "colsample_bytree": 0.70,
+            "reg_alpha": 0.1,
+            "reg_lambda": 5.0,
+            "random_state": 42,
+            "n_jobs": -1,
+            "verbose": -1,
+        }
 
-        xgb_params["n_estimators"] = 800
-        xgb_params["learning_rate"] = 0.04
-        xgb_params["tree_method"] = "hist"
-        xgb_params["n_jobs"] = -1
+        xgb_params = {
+            "objective": "binary:logistic",
+            "eval_metric": "auc",
+            "tree_method": "hist",
+            "learning_rate": 0.025,
+            "n_estimators": 2500,
+            "max_depth": 6,
+            "min_child_weight": 8,
+            "subsample": 0.85,
+            "colsample_bytree": 0.65,
+            "reg_alpha": 0.5,
+            "reg_lambda": 8.0,
+            "random_state": 42,
+            "n_jobs": -1,
+        }
 
-        cat_params["iterations"] = 800
-        cat_params["learning_rate"] = 0.045
-        cat_params["thread_count"] = -1
+        cat_params = {
+            "loss_function": "Logloss",
+            "eval_metric": "AUC",
+            "learning_rate": 0.03,
+            "iterations": 2200,
+            "depth": 6,
+            "l2_leaf_reg": 6.0,
+            "random_strength": 0.2,
+            "bagging_temperature": 0.2,
+            "od_type": "Iter",
+            "od_wait": 80,
+            "random_seed": 42,
+            "verbose": 0,
+            "thread_count": -1,
+        }
 
         # 1. LightGBM with Early Stopping Callback
         lgb = LGBMClassifier(**lgb_params)
         lgb.fit(
             X_train_clean, y_train,
             eval_set=[(X_val_clean, y_val)],
-            callbacks=[early_stopping(stopping_rounds=30, verbose=False)]
+            callbacks=[early_stopping(stopping_rounds=80, verbose=False)]
         )
         p_lgb = lgb.predict_proba(X_val_clean)[:, 1].astype(np.float32)
         oof_lgb[val_idx] = p_lgb
@@ -176,7 +212,7 @@ def run_fast_production_training(
         auc_lgb = roc_auc_score(y_val, p_lgb)
 
         # 2. XGBoost with Early Stopping
-        xgb = XGBClassifier(**xgb_params, early_stopping_rounds=30)
+        xgb = XGBClassifier(**xgb_params, early_stopping_rounds=80)
         xgb.fit(
             X_train_clean, y_train,
             eval_set=[(X_val_clean, y_val)],
@@ -188,7 +224,7 @@ def run_fast_production_training(
         auc_xgb = roc_auc_score(y_val, p_xgb)
 
         # 3. CatBoost with Early Stopping
-        cat = CatBoostClassifier(**cat_params, early_stopping_rounds=30)
+        cat = CatBoostClassifier(**cat_params, early_stopping_rounds=80)
         cat.fit(
             X_train_clean, y_train,
             eval_set=(X_val_clean, y_val),
