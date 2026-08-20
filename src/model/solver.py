@@ -104,57 +104,85 @@ def get_calibrated_model_params():
     return lgb_p, xgb_p, cat_p
 
 
-class ValueLevelTargetEncoder:
+class UniversalLevelTargetEncoder:
     """
-    Leak-Free Out-of-Fold Value-Level Target Encoder with Laplace Smoothing (SMOOTH=10.0).
-    Reconstructs continuous likelihood priors over discrete grid categories.
+    Leak-Free Out-of-Fold Universal Level Target & Frequency Encoder with Laplace Smoothing (SMOOTH=10.0).
+    Encodes explicit string levels (including '__missing__') across all columns to extract CTGAN discrete likelihood priors.
     """
-    def __init__(self, cols: List[str], smooth: float = 10.0, n_splits: int = 5, random_state: int = 42):
-        self.cols = cols
+    def __init__(self, cols: Optional[List[str]] = None, smooth: float = 10.0, n_splits: int = 5, random_state: int = 42):
+        self.cols = cols or [
+            'daily_screen_time_hours', 'social_media_hours', 'gaming_hours',
+            'work_study_hours', 'sleep_hours', 'notifications_per_day',
+            'app_opens_per_day', 'weekend_screen_time', 'age',
+            'gender', 'stress_level', 'academic_work_impact'
+        ]
         self.smooth = smooth
         self.n_splits = n_splits
         self.random_state = random_state
         self.global_mean = 0.5
-        self.mapping = {}
+        self.te_mapping = {}
+        self.freq_mapping = {}
+
+    def _make_levels(self, df: pd.DataFrame) -> pd.DataFrame:
+        cols_present = [c for c in self.cols if c in df.columns]
+        return pd.DataFrame({
+            c: df[c].astype(object).fillna('__missing__').astype(str).values
+            for c in cols_present
+        }, index=df.index)
 
     def fit_transform(self, X: pd.DataFrame, y: pd.Series) -> pd.DataFrame:
         X_out = X.copy()
         self.global_mean = float(y.mean())
-        self.mapping = {}
+        self.te_mapping = {}
+        self.freq_mapping = {}
+
+        levels_df = self._make_levels(X)
+        cols_present = levels_df.columns.tolist()
 
         # Global mapping for validation / inference
-        for col in self.cols:
-            if col not in X.columns:
-                continue
-            stats = y.groupby(X[col]).agg(['count', 'sum'])
-            col_map = (stats['sum'] + self.smooth * self.global_mean) / (stats['count'] + self.smooth)
-            self.mapping[col] = col_map.to_dict()
+        for col in cols_present:
+            lvl_col = levels_df[col]
+            stats = y.groupby(lvl_col).agg(['count', 'sum'])
+            col_map = ((stats['sum'] + self.smooth * self.global_mean) / (stats['count'] + self.smooth)).to_dict()
+            freq_map = (lvl_col.value_counts(normalize=True)).to_dict()
+            self.te_mapping[col] = col_map
+            self.freq_mapping[col] = freq_map
 
         # Internal K-Fold Out-of-Fold encoding for training
         skf = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=self.random_state)
-        for col in self.cols:
-            if col not in X.columns:
-                continue
-            oof_col = np.zeros(len(X))
+        for col in cols_present:
+            oof_te = np.zeros(len(X), dtype=np.float32)
+            oof_freq = np.zeros(len(X), dtype=np.float32)
             for tr_idx, val_idx in skf.split(X, y):
-                X_tr, y_tr = X.iloc[tr_idx], y.iloc[tr_idx]
-                X_vl = X.iloc[val_idx]
+                lvl_tr = levels_df.iloc[tr_idx][col]
+                lvl_vl = levels_df.iloc[val_idx][col]
+                y_tr = y.iloc[tr_idx]
 
                 tr_mean = float(y_tr.mean())
-                stats_tr = y_tr.groupby(X_tr[col]).agg(['count', 'sum'])
+                stats_tr = y_tr.groupby(lvl_tr).agg(['count', 'sum'])
                 map_tr = ((stats_tr['sum'] + self.smooth * tr_mean) / (stats_tr['count'] + self.smooth)).to_dict()
-                oof_col[val_idx] = X_vl[col].map(map_tr).fillna(tr_mean).values
+                freq_tr = (lvl_tr.value_counts(normalize=True)).to_dict()
 
-            X_out[f'{col}_target_enc'] = oof_col
+                oof_te[val_idx] = lvl_vl.map(map_tr).fillna(tr_mean).values.astype(np.float32)
+                oof_freq[val_idx] = lvl_vl.map(freq_tr).fillna(0.0).values.astype(np.float32)
+
+            X_out[f'{col}_lvl_te'] = oof_te
+            X_out[f'{col}_lvl_freq'] = oof_freq
 
         return X_out
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         X_out = X.copy()
-        for col, col_map in self.mapping.items():
-            if col in X.columns:
-                X_out[f'{col}_target_enc'] = X[col].map(col_map).fillna(self.global_mean).values
+        levels_df = self._make_levels(X)
+        for col in levels_df.columns:
+            if col in self.te_mapping:
+                lvl_col = levels_df[col]
+                X_out[f'{col}_lvl_te'] = lvl_col.map(self.te_mapping[col]).fillna(self.global_mean).values.astype(np.float32)
+                X_out[f'{col}_lvl_freq'] = lvl_col.map(self.freq_mapping[col]).fillna(0.0).values.astype(np.float32)
         return X_out
+
+# Backward compatibility alias
+ValueLevelTargetEncoder = UniversalLevelTargetEncoder
 
 
 class CompetitionSolver:
@@ -192,9 +220,8 @@ class CompetitionSolver:
             X_train_clean = preprocess_and_engineer(X_train)
             X_val_clean = preprocess_and_engineer(X_val)
 
-            # 2. Out-of-Fold Value-Level Target Encoding with Laplace smoothing
-            te_cols = [c for c in ['gender', 'stress_level', 'academic_work_impact', 'daily_screen_time_hours', 'app_opens_per_day'] if c in X_train_clean.columns]
-            te = ValueLevelTargetEncoder(cols=te_cols, smooth=10.0, n_splits=5, random_state=self.random_state + fold)
+            # 2. Out-of-Fold Universal Level Target & Frequency Encoding with Laplace smoothing
+            te = UniversalLevelTargetEncoder(smooth=10.0, n_splits=5, random_state=self.random_state + fold)
             X_train_clean = te.fit_transform(X_train_clean, y_train)
             X_val_clean = te.transform(X_val_clean)
 

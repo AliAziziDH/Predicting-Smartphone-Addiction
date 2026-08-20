@@ -220,7 +220,20 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
     awake_hrs = np.maximum(eps, 24.0 - slp_hrs)
     df_clean['compulsive_checking_density'] = (((app_ops + notifs) / awake_hrs) * (1.0 / (scr_hrs + eps))).astype(np.float32)
 
-    # 22. High-Performance Memory Downcasting (reduces RAM from 1.2GB to <300MB on 690k rows)
+    # 22. Decimal Lattice Features (Sub-unit continuous position and first decimal digit CTGAN artifacts)
+    frac_cols = ['daily_screen_time_hours', 'social_media_hours', 'gaming_hours', 'work_study_hours', 'sleep_hours', 'weekend_screen_time']
+    for c in frac_cols:
+        if c in df_clean.columns:
+            val = pd.to_numeric(df_clean[c], errors='coerce').to_numpy(dtype=np.float64)
+            df_clean[f'frac_{c}'] = np.where(np.isnan(val), np.nan, val - np.floor(val)).astype(np.float32)
+            df_clean[f'd1_{c}'] = np.where(np.isnan(val), np.nan, np.floor(val * 10.0) % 10.0).astype(np.float32)
+
+    # 23. Missing Pattern Count & Explicit Missingness Indicators
+    raw_num_cols = ['age', 'daily_screen_time_hours', 'social_media_hours', 'gaming_hours', 'work_study_hours', 'sleep_hours', 'notifications_per_day', 'app_opens_per_day', 'weekend_screen_time']
+    existing_raw = [c for c in raw_num_cols if c in df_clean.columns]
+    df_clean['missing_features_count'] = df_clean[existing_raw].isna().sum(axis=1).astype(np.float32)
+
+    # 24. High-Performance Memory Downcasting (reduces RAM from 1.2GB to <300MB on 690k rows)
     for col in df_clean.select_dtypes(include=['float64']).columns:
         df_clean[col] = df_clean[col].astype(np.float32)
     for col in df_clean.select_dtypes(include=['int64']).columns:

@@ -31,7 +31,7 @@ except NameError:
     sys.path.insert(0, ROOT_DIR)
 
 from src.model.formulation import preprocess_and_engineer
-from src.model.solver import ValueLevelTargetEncoder, get_calibrated_model_params, to_gauss_rank, NelderMeadRankStacker, perform_ks_drift_screen
+from src.model.solver import UniversalLevelTargetEncoder, ValueLevelTargetEncoder, get_calibrated_model_params, to_gauss_rank, NelderMeadRankStacker, perform_ks_drift_screen
 from lightgbm import LGBMClassifier, early_stopping
 from xgboost import XGBClassifier
 from catboost import CatBoostClassifier
@@ -121,9 +121,8 @@ def run_fast_production_training(
         X_train_clean = preprocess_and_engineer(X_train)
         X_val_clean = preprocess_and_engineer(X_val)
 
-        # Target Encoding
-        te_cols = [c for c in ['gender', 'stress_level', 'academic_work_impact', 'daily_screen_time_hours', 'app_opens_per_day'] if c in X_train_clean.columns]
-        te = ValueLevelTargetEncoder(cols=te_cols, smooth=10.0, n_splits=5, random_state=random_state + fold)
+        # Universal Level Target & Frequency Encoding across all discrete levels
+        te = UniversalLevelTargetEncoder(smooth=10.0, n_splits=5, random_state=random_state + fold)
         X_train_clean = te.fit_transform(X_train_clean, pd.Series(y_train))
         X_val_clean = te.transform(X_val_clean)
         X_test_fold = te.transform(X_test_clean.copy())
