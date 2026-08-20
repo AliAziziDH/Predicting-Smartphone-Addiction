@@ -60,7 +60,7 @@ Current Best Proxy OOF AUC: {current_best_auc:.5f}
 - Numeric: age (int), daily_screen_time_hours (float), sleep_hours (float), social_media_hours (float), gaming_hours (float), work_study_hours (float), app_opens_per_day (float), notifications_per_day (float), weekend_screen_time (float), other_screen (float), unaccounted_hours (float), productive_work_ratio (float), work_adjusted_screen_load (float)
 - Categorical/String: gender ('Male'/'Female'), stress_level ('Low'/'Medium'/'High'), academic_work_impact ('No'/'Yes')
 NOTE: If using stress_level or academic_work_impact in math, map them first e.g.:
-`stress_map = {'Low': 1, 'Medium': 2, 'High': 3}; s = df['stress_level'].map(stress_map).fillna(2)`
+`stress_map = {{'Low': 1, 'Medium': 2, 'High': 3}}; s = df['stress_level'].map(stress_map).fillna(2)`
 
 REQUIREMENTS:
 1. Propose exactly 3 innovative, non-linear Python feature engineering functions.

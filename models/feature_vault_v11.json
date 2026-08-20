@@ -1,6 +1,6 @@
 {
-  "vault_version": "v12_wave7_ai_studio",
-  "total_features": 39,
+  "vault_version": "v13_wave8_synergy",
+  "total_features": 41,
   "mathematical_formulations": [
     {
       "name": "compulsive_checking_velocity",
@@ -51,6 +51,16 @@
       "name": "CDUR",
       "formula": "((social_media_hours + gaming_hours) / (work_study_hours + 1e-6)) * (24 / (sleep_hours + 1e-6))",
       "rationale": "Chronobiological Dopamine-to-Utility Ratio: penalizes nighttime dopamine vs utility under sleep disruption."
+    },
+    {
+      "name": "dopamine_chasing_index",
+      "formula": "log1p(app_opens / (notifications + 1.0)) * sigmoid(leisure_screen_time - 3.0)",
+      "rationale": "Non-linear interaction between micro-interactions and sigmoid leisure time."
+    },
+    {
+      "name": "compulsive_checking_density",
+      "formula": "((app_opens + notifications) / awake_hours) * (1 / (daily_screen_time_hours + 1e-6))",
+      "rationale": "Compulsive checking density per awake hour scaled inversely by total screen duration."
     }
   ],
   "optimizer": {

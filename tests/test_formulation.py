@@ -112,8 +112,8 @@ def test_engineered_features_shape(mock_dataframe):
     # original has 12 columns
     assert mock_dataframe.shape[1] == 12
     processed = preprocess_and_engineer(mock_dataframe)
-    # output has 12 original + 22 engineered + 5 grid freq = 39
-    assert processed.shape[1] == 39
+    # output has 12 original + 24 engineered + 5 grid freq = 41
+    assert processed.shape[1] == 41
     assert 'sleep_app_opens_ratio' in processed.columns
     assert 'productive_work_ratio' in processed.columns
     assert 'work_adjusted_screen_load' in processed.columns
@@ -125,6 +125,8 @@ def test_engineered_features_shape(mock_dataframe):
     assert 'B_ISAT' in processed.columns
     assert 'H_AF' in processed.columns
     assert 'CDUR' in processed.columns
+    assert 'dopamine_chasing_index' in processed.columns
+    assert 'compulsive_checking_density' in processed.columns
 
 def test_engineered_features_zero_division(mock_dataframe):
     # Daily_Screen_Time is 0 for index 1
