@@ -1,0 +1,61 @@
+{
+  "vault_version": "v12_wave7_ai_studio",
+  "total_features": 39,
+  "mathematical_formulations": [
+    {
+      "name": "compulsive_checking_velocity",
+      "formula": "(notifications_per_day / (app_opens_per_day + 1.0)) * (daily_screen_time_hours / (24 - sleep_hours))",
+      "rationale": "Measures internal compulsion velocity vs prompt-driven app opens."
+    },
+    {
+      "name": "circadian_dopamine_strain",
+      "formula": "max(0, 8.0 - sleep_hours) * ((social_media_hours + gaming_hours)^1.5) / (sleep_hours + 1.0)",
+      "rationale": "Polynomial non-linear dopamine exposure penalty under sleep deficit."
+    },
+    {
+      "name": "synthetic_budget_deficit",
+      "formula": "(social_media_hours + gaming_hours + work_study_hours) - daily_screen_time_hours",
+      "rationale": "Directly measures the 8.4% CTGAN synthetic generation boundary inconsistency."
+    },
+    {
+      "name": "synthetic_budget_violation",
+      "formula": "(claimed_activities > daily_screen_time_hours).astype(float32)",
+      "rationale": "Binary flag for impossible time-budget leakage in synthetic dataset."
+    },
+    {
+      "name": "joint_profile_freq",
+      "formula": "value_counts_normalized(gender + '_' + stress_level + '_' + academic_work_impact)",
+      "rationale": "Scale-invariant high-cardinality multi-way demographic density mapping."
+    },
+    {
+      "name": "work_adjusted_screen_load",
+      "formula": "(daily_screen_time_hours - work_study_hours) / (sleep_hours + 1e-9)",
+      "rationale": "Pure non-work screen strain relative to sleep."
+    },
+    {
+      "name": "productive_work_ratio",
+      "formula": "work_study_hours / (daily_screen_time_hours + 1e-9)",
+      "rationale": "Shields high-screen productive workers from false positive classification."
+    },
+    {
+      "name": "B_ISAT",
+      "formula": "(app_opens_per_day / (daily_screen_time_hours + 1e-6)) / (notifications_per_day + 1e-6)",
+      "rationale": "Inter-Session Arrival Time Burstiness: captures micro-dosing and rapid compulsive self-initiated phone checks."
+    },
+    {
+      "name": "H_AF",
+      "formula": "-sum(p_i * ln(p_i + 1e-6)) across digital activity proportions",
+      "rationale": "Attention Fragmentation Entropy: calculates Shannon entropy over app categories to quantify doom-scrolling."
+    },
+    {
+      "name": "CDUR",
+      "formula": "((social_media_hours + gaming_hours) / (work_study_hours + 1e-6)) * (24 / (sleep_hours + 1e-6))",
+      "rationale": "Chronobiological Dopamine-to-Utility Ratio: penalizes nighttime dopamine vs utility under sleep disruption."
+    }
+  ],
+  "optimizer": {
+    "type": "NelderMeadRankStacker",
+    "loss": "Negative ROC-AUC on rank-projected percentiles",
+    "regularization": "Softmax positive projection"
+  }
+}

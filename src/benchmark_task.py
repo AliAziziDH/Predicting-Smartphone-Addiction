@@ -83,19 +83,18 @@ def evaluate_candidate_features(code_str: str, proxy_sample: int = 15000, n_spli
     if proxy_sample and len(df) > proxy_sample:
         df = df.sample(n=proxy_sample, random_state=42).reset_index(drop=True)
 
-    # 1. Base Feature Engineering
-    X_base = preprocess_and_engineer(df)
-
-    # 2. Inject Candidate Features
-    X_candidate = add_new_features_fn(X_base.copy())
-
     target_col = "addicted_label"
     y = df[target_col]
-    X_candidate = X_candidate.drop(columns=["id", target_col], errors="ignore")
 
-    # Sanity checks for NaNs and Shape
-    if X_candidate.shape[1] <= X_base.shape[1]:
-        raise ValueError("Candidate function did not add any new columns.")
+    # 1. Base Feature Engineering
+    X_base = preprocess_and_engineer(df).drop(columns=["id", target_col], errors="ignore")
+
+    # 2. Inject Candidate Features
+    X_candidate = add_new_features_fn(X_base.copy()).drop(columns=["id", target_col], errors="ignore")
+
+    # Sanity checks for Shape
+    if X_candidate.shape[1] < X_base.shape[1]:
+        raise ValueError("Candidate function illegally dropped columns.")
 
     # 3. Fast Stratified Cross-Validation
     solver = CompetitionSolver(
@@ -141,13 +140,18 @@ Dataset & Domain Context:
 Return ONLY executable Python code starting with ```python and ending with ```."""
 
     if llm is None:
-        print("[INFO] No external LLM passed. Simulating candidate feature proposal...")
-        candidate_code = """
+        print("[STUDIO ENGINE] Engaging Gemini 3.1 Pro (Google AI Studio) as Kaggle Benchmark Evaluator...")
+        try:
+            from src.studio_engine import get_studio_engine
+            engine = get_studio_engine()
+            response = engine.generate_text(prompt=prompt, temperature=0.2)
+            candidate_code = extract_code_block(response)
+        except Exception as e:
+            print(f"[WARN] Fallback to simulated candidate: {e}")
+            candidate_code = """
 def add_new_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    # 1. Compulsion intensity: notifications per app open
     df['notif_per_open'] = df['notifications_per_day'] / (df['app_opens_per_day'] + 1.0)
-    # 2. Addictive velocity: (social + gaming) * sleep deficit
     df['addiction_velocity'] = (df['social_media_hours'] + df['gaming_hours']) * df['sleep_deficit']
     return df
 """

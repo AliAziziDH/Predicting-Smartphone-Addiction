@@ -182,7 +182,36 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
         joint_freq_map = joint_key.value_counts(normalize=True).to_dict()
         df_clean['joint_profile_freq'] = joint_key.map(joint_freq_map).astype(np.float32)
 
-    # 17. High-Performance Memory Downcasting (reduces RAM from 1.2GB to <300MB on 690k rows)
+    # Helper for safe float series access across sparse test dataframes
+    def _safe_col(col_name: str, default: float = 0.0) -> pd.Series:
+        if col_name in df_clean.columns:
+            return pd.to_numeric(df_clean[col_name], errors='coerce').fillna(default).astype(np.float32)
+        return pd.Series(default, index=df_clean.index, dtype=np.float32)
+
+    # 17. Inter-Session Arrival Time Burstiness (B_ISAT) - AI Studio Prescription
+    scr_hrs = _safe_col('daily_screen_time_hours', default=1.0)
+    notifs = _safe_col('notifications_per_day', default=1.0)
+    app_ops = _safe_col('app_opens_per_day', default=0.0)
+    df_clean['B_ISAT'] = ((app_ops / (scr_hrs + eps)) / (notifs + eps)).astype(np.float32)
+
+    # 18. Attention Fragmentation Entropy (H_AF) - AI Studio Prescription
+    soc_hrs = _safe_col('social_media_hours', default=0.0)
+    gam_hrs = _safe_col('gaming_hours', default=0.0)
+    wrk_hrs = _safe_col('work_study_hours', default=0.0)
+    tot_act_time = soc_hrs + gam_hrs + wrk_hrs + eps
+    p_soc = soc_hrs / tot_act_time
+    p_gam = gam_hrs / tot_act_time
+    p_wrk = wrk_hrs / tot_act_time
+    df_clean['H_AF'] = -(p_soc * np.log(p_soc + eps) + p_gam * np.log(p_gam + eps) + p_wrk * np.log(p_wrk + eps)).astype(np.float32)
+
+    # 19. Chronobiological Dopamine-to-Utility Ratio (CDUR) - AI Studio Prescription
+    dopamine_hrs = soc_hrs + gam_hrs
+    utility_hrs = wrk_hrs
+    slp_hrs = _safe_col('sleep_hours', default=8.0)
+    chrono_penalty = 24.0 / (slp_hrs + eps)
+    df_clean['CDUR'] = ((dopamine_hrs / (utility_hrs + eps)) * chrono_penalty).astype(np.float32)
+
+    # 20. High-Performance Memory Downcasting (reduces RAM from 1.2GB to <300MB on 690k rows)
     for col in df_clean.select_dtypes(include=['float64']).columns:
         df_clean[col] = df_clean[col].astype(np.float32)
     for col in df_clean.select_dtypes(include=['int64']).columns:
