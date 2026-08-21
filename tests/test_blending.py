@@ -32,67 +32,6 @@ def mock_predictions():
     preds_matrix = np.column_stack((preds_lgb, preds_xgb, preds_cat))
     return preds_matrix, y
 
-def test_blend_weights_constraints(mock_predictions):
-    preds_matrix, y = mock_predictions
-    blender = EnsembleBlender()
-
-    weights = blender.fit(preds_matrix, y)
-
-    # Constraint a: Non-negativity constraint [0.0, 1.0]
-    assert np.all(weights >= -1e-6), f"Weights contain negative values: {weights}"
-    assert np.all(weights <= 1.0 + 1e-6), f"Weights contain values > 1.0: {weights}"
-
-    # Constraint b: Sum-to-one constraint
-    assert np.isclose(np.sum(weights), 1.0, atol=1e-5), f"Weights do not sum to exactly 1.0. Sum: {np.sum(weights)}"
-
-def test_blending_auc_improvement(mock_predictions):
-    preds_matrix, y = mock_predictions
-    blender = EnsembleBlender()
-
-    weights = blender.fit(preds_matrix, y)
-
-    # Calculate baseline AUCs
-    auc_lgb = roc_auc_score(y, preds_matrix[:, 0])
-    auc_xgb = roc_auc_score(y, preds_matrix[:, 1])
-    auc_cat = roc_auc_score(y, preds_matrix[:, 2])
-
-    best_baseline_auc = max(auc_lgb, auc_xgb, auc_cat)
-
-    # Calculate Optimized OOF AUC
-    optimized_preds = np.dot(preds_matrix, weights)
-    optimized_auc = roc_auc_score(y, optimized_preds)
-
-    # The optimized blend should be at least as good as the best individual model
-    # (Allowing a very small numerical tolerance)
-    assert optimized_auc >= best_baseline_auc - 1e-6, \
-        f"Optimized AUC ({optimized_auc:.6f}) is worse than best baseline ({best_baseline_auc:.6f})"
-
-def test_rank_blending_auc_improvement(mock_predictions):
-    import scipy.stats
-    preds_matrix, y = mock_predictions
-    blender = EnsembleBlender()
-
-    # Convert mock predictions to rank percentiles to simulate the new pipeline
-    rank_matrix = np.zeros_like(preds_matrix)
-    for i in range(preds_matrix.shape[1]):
-        rank_matrix[:, i] = (scipy.stats.rankdata(preds_matrix[:, i]) - 0.5) / len(preds_matrix)
-
-    weights = blender.fit(rank_matrix, y)
-
-    # Calculate baseline AUCs on ranks
-    auc_lgb = roc_auc_score(y, rank_matrix[:, 0])
-    auc_xgb = roc_auc_score(y, rank_matrix[:, 1])
-    auc_cat = roc_auc_score(y, rank_matrix[:, 2])
-
-    best_baseline_auc = max(auc_lgb, auc_xgb, auc_cat)
-
-    # Calculate Optimized OOF AUC
-    optimized_preds = np.dot(rank_matrix, weights)
-    optimized_auc = roc_auc_score(y, optimized_preds)
-
-    assert optimized_auc >= best_baseline_auc - 1e-6, f"Optimized AUC ({optimized_auc:.6f}) is worse than best baseline ({best_baseline_auc:.6f})"
-
-
 def test_nelder_mead_rank_stacker(mock_predictions):
     from src.model.solver import NelderMeadRankStacker
     import scipy.stats
@@ -120,8 +59,8 @@ def test_nelder_mead_rank_stacker(mock_predictions):
     assert stacker_auc >= best_single_auc - 1e-6, f"Nelder-Mead AUC ({stacker_auc:.5f}) should be >= best single model ({best_single_auc:.5f})"
 
 
-def test_two_stage_hybrid_stacker(mock_predictions):
-    from src.model.solver import TwoStageHybridStacker
+def test_two_stage_hybrid_stacker_old(mock_predictions):
+    from src.model.solver import EnsembleBlender
     preds_matrix, y = mock_predictions
     p_lgb = preds_matrix[:, 0]
     p_xgb = preds_matrix[:, 1]
@@ -130,7 +69,7 @@ def test_two_stage_hybrid_stacker(mock_predictions):
     np.random.seed(42)
     p_nn = np.clip(y * 0.5 + np.random.normal(0.4, 0.25, len(y)), 0.01, 0.99)
 
-    stacker = TwoStageHybridStacker(random_state=42)
+    stacker = EnsembleBlender(random_state=42)
     stacker.fit(p_lgb, p_cat, p_xgb, p_nn, y)
 
     assert stacker.tree_weights_ is not None

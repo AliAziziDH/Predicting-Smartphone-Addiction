@@ -32,7 +32,7 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
     Focuses exclusively on stable, high-generalization domain ratios and time balances.
     """
     df_clean = df.copy()
-    eps = 1e-7
+    eps = 1e-5
 
     def _num(col: str) -> pd.Series:
         if col in df_clean.columns:
@@ -52,7 +52,11 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
     df_clean['other_screen'] = (scr_hrs - (soc_hrs.fillna(0.0) + gam_hrs.fillna(0.0) + wrk_hrs.fillna(0.0))).astype(np.float32)
 
     # 2. 24-Hour Life Budget Residual
-    df_clean['unaccounted_hours'] = (24.0 - (scr_hrs.fillna(0.0) + wrk_hrs.fillna(0.0) + slp_hrs.fillna(0.0))).astype(np.float32)
+    df_clean['unaccounted_hours'] = (24.0 - (scr_hrs + wrk_hrs + slp_hrs)).astype(np.float32)
+
+    # 2.5 Unaccounted Time Leakage (UTL)
+    df_clean['UTL'] = (scr_hrs - (soc_hrs + gam_hrs + wrk_hrs)).astype(np.float32)
+    df_clean['UTL_ratio'] = (df_clean['UTL'] / (scr_hrs + eps)).astype(np.float32)
 
     # 3. High-Risk Activity Ratios
     df_clean['gaming_to_screen_ratio'] = np.where(scr_hrs.isna(), np.nan, (gam_hrs / (scr_hrs + eps))).astype(np.float32)
@@ -62,7 +66,7 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
     # 4. Hourly Rates & Checking Intensity
     df_clean['notifications_per_hour'] = np.where(scr_hrs.isna(), np.nan, (notifs / (scr_hrs + eps))).astype(np.float32)
     df_clean['app_opens_per_hour'] = np.where(scr_hrs.isna(), np.nan, (app_ops / (scr_hrs + eps))).astype(np.float32)
-    df_clean['compulsive_pull_ratio'] = np.where(app_ops.isna() | notifs.isna(), np.nan, (app_ops / (notifs + 1.0))).astype(np.float32)
+    df_clean['compulsive_pull_ratio'] = (app_ops / (notifs + 1.0)).astype(np.float32)
 
     # 5. Weekend / Work / Sleep Balance
     df_clean['weekend_screen_time_ratio'] = np.where(scr_hrs.isna(), np.nan, (wknd_hrs / (scr_hrs + eps))).astype(np.float32)
@@ -73,6 +77,10 @@ def preprocess_and_engineer(df: pd.DataFrame) -> pd.DataFrame:
         np.nan,
         ((scr_hrs - wrk_hrs.fillna(0.0)) / (slp_hrs + eps))
     ).astype(np.float32)
+
+    # 5.5 Work Shield Factor
+    leisure_hours = soc_hrs + gam_hrs
+    df_clean['work_shield_factor'] = ((wrk_hrs / (scr_hrs + eps)) * np.exp(-leisure_hours / 2.0)).astype(np.float32)
 
     # 6. Missingness Indicator
     raw_cols = ['age', 'daily_screen_time_hours', 'social_media_hours', 'gaming_hours', 'work_study_hours', 'sleep_hours', 'notifications_per_day', 'app_opens_per_day', 'weekend_screen_time']

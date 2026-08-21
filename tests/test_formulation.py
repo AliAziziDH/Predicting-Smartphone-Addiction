@@ -113,7 +113,7 @@ def test_engineered_features_shape(mock_dataframe):
     assert mock_dataframe.shape[1] == 12
     processed = preprocess_and_engineer(mock_dataframe)
     # output has 12 original + 13 clean engineered features = 25
-    assert processed.shape[1] == 25
+    assert processed.shape[1] == 28
     assert 'other_screen' in processed.columns
     assert 'unaccounted_hours' in processed.columns
     assert 'gaming_to_screen_ratio' in processed.columns
@@ -127,6 +127,9 @@ def test_engineered_features_shape(mock_dataframe):
     assert 'productive_work_ratio' in processed.columns
     assert 'work_adjusted_screen_load' in processed.columns
     assert 'missing_features_count' in processed.columns
+    assert 'UTL' in processed.columns
+    assert 'UTL_ratio' in processed.columns
+    assert 'work_shield_factor' in processed.columns
 
 def test_engineered_features_zero_division(mock_dataframe):
     # Daily_Screen_Time is 0 for index 1
