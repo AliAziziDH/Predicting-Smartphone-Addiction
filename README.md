@@ -134,27 +134,9 @@ python src/compile_notebook.py
 
 ## 📈 The Optimization Journey: From Baseline (0.949) to Peak Meta-Blend (0.96943)
 
-Competitive machine learning is rarely about a single model; it is an iterative optimization trajectory. Here is how the architecture evolved over 12 development waves:
+Model development evolved through an iterative optimization trajectory across 12 feature and ensembling waves:
 
-```
-[Wave 1-5: Naive GBDT + Imputation] ──► 0.94979
-             │
-             ▼
-[Wave 6-7: 24h Life Budget & Domain Ratios] ──► 0.96434 (+0.0145)
-             │
-             ▼
-[Wave 8: Out-of-Fold Discrete Target Encoding] ──► 0.96469
-             │
-             ▼
-[Wave 9: 54 Scaled Features + Nelder-Mead Rank Stack] ──► 0.96919
-             │
-             ▼
-[Wave 9 + 10: Multi-Wave Rank Blending (Peak Formulation)] ──► 0.96943 Public / 0.96920 Private
-```
-
-### 🗺️ Iterative Progression Table
-
-| Development Wave / Strategy | Key Architectural Innovation | Public ROC-AUC | Private ROC-AUC | Key Lesson |
+| Development Wave / Strategy | Key Architectural Innovation | Public ROC-AUC | Private ROC-AUC | Key Engineering Lesson |
 | :--- | :--- | :---: | :---: | :--- |
 | **Initial GBDT Baselines** | Raw features, global mean imputation | `0.94979` | `0.95015` | Destructive imputation damages tree branch decisions. |
 | **Wave 6: Domain Formulation** | 24h life budget, residual screen time, native NaNs | `0.96434` | `0.96430` | Domain physics (time budget constraints) produce massive signal gain. |
