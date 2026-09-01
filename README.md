@@ -40,30 +40,42 @@ Predicting-Smartphone-Addiction/
 
 ---
 
-## 🔬 Core Engineering Innovations
+## 🔬 Core Engineering Innovations & Visual Insights
 
-### 1. Leak-Free Feature Formulation & Native NaN Propagation
+### 1. Feature Signal Emergence & Domain Ratios
 Tree-based gradient boosters benefit substantially from native branch routing on missing values. Destructive global imputations (mean, median) are strictly avoided in favor of mathematically grounded domain balances:
 - **24-Hour Life Budget Balance:** Residual unallocated time ($\text{Budget} = 24 - (\text{Screen} + \text{Work} + \text{Sleep})$).
 - **Residual Screen Time:** Screen time not accounted for by social, gaming, or work apps.
 - **Compulsive Pull Ratio:** Interaction checking intensity ($\text{App Opens} / (\text{Notifications} + 1)$).
-- **Work Shield Factor:** Protective mitigation of productive work against addiction probability ($\frac{\text{Work}}{\text{Screen} + \epsilon} \cdot \exp(-\frac{\text{Leisure}}{2})$).
+- **Work Shield Factor:** Protective mitigation of productive work against addiction probability ($\frac{\text{Work}}{\text{Screen} + \epsilon} \cdot \exp(-\frac{\text{Leisure}}{2.5})$).
+
+<p align="center">
+  <img src="assets/figure1_feature_distributions.png" alt="Feature Signal Emergence" width="95%"/>
+</p>
 
 ### 2. Discrete Categorical Target Encoding
 Applies internal 5-fold Out-of-Fold (OOF) target and frequency encoding strictly to discrete categorical pairs (e.g., `gender × stress_level`) with **Laplace smoothing ($\text{smooth}=20.0$)** to eliminate target leakage and guard against low-cardinality overfitting.
 
-### 3. Heterogeneous 4-Way Modeling
-Combines diverse predictive models across different hypothesis spaces:
+### 3. Heterogeneous 4-Way Modeling & Residual Diversity
+Combines diverse predictive models across distinct hypothesis spaces to maximize ensemble diversity:
 - **LightGBM:** Fast histogram-based gradient boosting with path smoothing and regularization.
 - **XGBoost:** Exact depth-constrained trees with heavy $L_1/L_2$ regularization.
 - **CatBoost:** Oblivious decision trees with symmetric structure and Bernoulli subsampling.
 - **Deep Tabular Neural Network:** Continuous representation layer capturing non-tree manifolds.
+
+<p align="center">
+  <img src="assets/figure2_ensemble_diversity.png" alt="Heterogeneous Ensemble Diversity Heatmap" width="60%"/>
+</p>
 
 ### 4. SLSQP Convex Blending & Gauss-Rank Meta-Stacking
 Heterogeneous model predictions are transformed via **Empirical Cumulative Distribution Function (ECDF)** percentiles to eliminate calibration discrepancies across model families:
 $$\text{Rank}(p_i) = \frac{\text{rank}(p_i) - 0.5}{N}, \quad z_i = \Phi^{-1}(\text{Rank}(p_i))$$
 Optimal ensembling weights are then solved via **Sequential Least Squares Programming (SLSQP)** under non-negativity and sum-to-one constraints:
 $$\min_{\mathbf{w}} -\text{ROC-AUC}\left(\sum_{m} w_m \cdot \text{Rank}(p^{(m)}), y\right) \quad \text{s.t.} \quad \sum w_i = 1, \quad w_i \ge 0$$
+
+<p align="center">
+  <img src="assets/figure3_rank_transformation_ks.png" alt="Gauss-Rank Transformation" width="85%"/>
+</p>
 
 ### 5. Kolmogorov-Smirnov (KS) Distribution Drift Guardrail
 During inference, a two-sample Kolmogorov-Smirnov test is computed between Out-of-Fold predictions and test set predictions ($D_{\text{crit}} < 0.03$) to detect and prevent shake-up before final submission generation.
