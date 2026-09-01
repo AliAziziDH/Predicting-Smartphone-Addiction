@@ -172,8 +172,8 @@ Competitive machine learning is rarely about a single model; it is an iterative 
    The single largest jump ($+0.015$ AUC) came from formulating **closed time-budget constraints** and **interaction intensity ratios**, far outperforming raw grid search on default features.
 2. **Preserve Native Missingness:**  
    Allowing gradient boosting split finders to route `np.nan` values natively preserved critical missingness information that global imputation destroyed.
-3. **Rank-Space Ensembling Guards Against Shift:**  
-   Averaging raw probabilities often suffers when models have different calibration slopes. Converting predictions to empirical percentiles ($\text{Rank}(p)$) before SLSQP optimization provided total resilience against distribution shift.
+3. **Rank-Space Ensembling Guards Against Calibration Drift:**  
+   Averaging raw probabilities often degrades performance when heterogeneous models have differing calibration slopes. Converting predictions to empirical percentile ranks $\text{Rank}(p) = \frac{\text{rank}(p) - 0.5}{N}$ prior to SLSQP optimization provided complete invariance to probability calibration shifts.
 
 ---
 

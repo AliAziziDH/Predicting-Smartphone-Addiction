@@ -81,41 +81,44 @@ df = pd.DataFrame({
 # Figure 1: Feature Signal Emergence (Raw vs. Engineered Domain Features)
 # -----------------------------------------------------------------------------
 print("Generating Figure 1: Feature Signal Emergence...")
-fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
+fig, axes = plt.subplots(1, 3, figsize=(20, 6), sharey=False)
 
-color_neg = "#58a6ff"  # Clean Blue (Not Addicted)
+color_neg = "#58a6ff"  # Ocean Blue (Non-Addicted)
 color_pos = "#f85149"  # Crimson Coral (Addicted)
 
-# 1. Raw Screen Time
+# 1. Raw Screen Time (High Overlap)
 sns.kdeplot(data=df, x='raw_screen_time', hue='addicted', fill=True, common_norm=False,
-            palette={0: color_neg, 1: color_pos}, alpha=0.45, linewidth=2, ax=axes[0])
-axes[0].set_title("A. Raw Screen Time (High Overlap)", fontsize=13, fontweight='bold', pad=12, color='#f0f6fc')
-axes[0].set_xlabel("Daily Screen Time (Hours)", fontsize=11, fontweight='semibold')
-axes[0].set_ylabel("Density", fontsize=11, fontweight='semibold')
-axes[0].grid(True)
-axes[0].legend(labels=['Addicted (Class 1)', 'Non-Addicted (Class 0)'], frameon=True, facecolor='#161b22', edgecolor='#30363d')
+            palette={0: color_neg, 1: color_pos}, alpha=0.40, linewidth=2.5, ax=axes[0])
+axes[0].set_title("A. Raw Screen Time (High Class Overlap)", fontsize=14, fontweight='bold', pad=14, color='#f0f6fc')
+axes[0].set_xlabel("Daily Screen Time (Hours)", fontsize=12, fontweight='semibold', labelpad=8)
+axes[0].set_ylabel("Probability Density", fontsize=12, fontweight='semibold', labelpad=8)
+axes[0].set_xlim(0, 16)
+axes[0].grid(True, linestyle='--', alpha=0.5)
+axes[0].legend(labels=['Addicted (Class 1)', 'Non-Addicted (Class 0)'], frameon=True, facecolor='#161b22', edgecolor='#30363d', fontsize=10)
 
-# 2. Compulsive Pull Ratio
+# 2. Compulsive Pull Ratio (Bimodal Separation)
 sns.kdeplot(data=df, x='compulsive_pull_ratio', hue='addicted', fill=True, common_norm=False,
-            palette={0: color_neg, 1: color_pos}, alpha=0.45, linewidth=2, ax=axes[1])
-axes[1].set_title("B. Compulsive Pull Ratio (Signal Bimodality)", fontsize=13, fontweight='bold', pad=12, color='#f0f6fc')
-axes[1].set_xlabel("App Opens / (Notifications + 1)", fontsize=11, fontweight='semibold')
-axes[1].set_ylabel("Density", fontsize=11, fontweight='semibold')
-axes[1].grid(True)
-axes[1].legend(labels=['Addicted (Class 1)', 'Non-Addicted (Class 0)'], frameon=True, facecolor='#161b22', edgecolor='#30363d')
+            palette={0: color_neg, 1: color_pos}, alpha=0.40, linewidth=2.5, ax=axes[1])
+axes[1].set_title("B. Compulsive Pull Ratio (Behavioral Intensity)", fontsize=14, fontweight='bold', pad=14, color='#f0f6fc')
+axes[1].set_xlabel("App Opens / (Notifications + 1.0)", fontsize=12, fontweight='semibold', labelpad=8)
+axes[1].set_ylabel("Probability Density", fontsize=12, fontweight='semibold', labelpad=8)
+axes[1].set_xlim(0.1, 2.2)
+axes[1].grid(True, linestyle='--', alpha=0.5)
+axes[1].legend(labels=['Addicted (Class 1)', 'Non-Addicted (Class 0)'], frameon=True, facecolor='#161b22', edgecolor='#30363d', fontsize=10)
 
-# 3. Work Shield Factor
-sns.kdeplot(data=df, x='work_shield_factor', hue='addicted', fill=True, common_norm=False,
-            palette={0: color_neg, 1: color_pos}, alpha=0.45, linewidth=2, ax=axes[2])
-axes[2].set_title("C. Work Shield Factor (Protective Floor)", fontsize=13, fontweight='bold', pad=12, color='#f0f6fc')
-axes[2].set_xlabel("Work Load · exp(-Leisure / 2.5)", fontsize=11, fontweight='semibold')
-axes[2].set_ylabel("Density", fontsize=11, fontweight='semibold')
-axes[2].grid(True)
-axes[2].legend(labels=['Addicted (Class 1)', 'Non-Addicted (Class 0)'], frameon=True, facecolor='#161b22', edgecolor='#30363d')
+# 3. 24-Hour Life Budget Residual (Clear Domain Separation)
+sns.kdeplot(data=df, x='unaccounted_hours', hue='addicted', fill=True, common_norm=False,
+            palette={0: color_neg, 1: color_pos}, alpha=0.40, linewidth=2.5, ax=axes[2])
+axes[2].set_title("C. 24h Life Budget Residual (Time Deficit)", fontsize=14, fontweight='bold', pad=14, color='#f0f6fc')
+axes[2].set_xlabel("Unaccounted Hours: 24 - (Screen + Work + Sleep)", fontsize=12, fontweight='semibold', labelpad=8)
+axes[2].set_ylabel("Probability Density", fontsize=12, fontweight='semibold', labelpad=8)
+axes[2].set_xlim(1, 16)
+axes[2].grid(True, linestyle='--', alpha=0.5)
+axes[2].legend(labels=['Addicted (Class 1)', 'Non-Addicted (Class 0)'], frameon=True, facecolor='#161b22', edgecolor='#30363d', fontsize=10)
 
-plt.suptitle("Feature Formulation & Signal Emergence — Raw Distributions vs. Engineered Domain Ratios",
-             fontsize=16, fontweight='bold', y=1.03, color='#58a6ff')
-plt.tight_layout()
+plt.suptitle("Feature Formulation & Signal Emergence — Raw Distributions vs. Engineered Domain Balances",
+             fontsize=17, fontweight='bold', y=1.04, color='#58a6ff')
+plt.tight_layout(w_pad=3.0)
 fig1_path = ASSETS_DIR / "figure1_feature_distributions.png"
 plt.savefig(fig1_path, bbox_inches='tight', dpi=300)
 plt.close()
