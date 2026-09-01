@@ -1,10 +1,16 @@
 # 📱 Predicting Smartphone Addiction — Production ML & Ensembling Architecture
 
+[![Kaggle Benchmark](https://img.shields.io/badge/Kaggle-Top%20Quartile%20%7C%20Rank%20%23950%20of%203%2C532-20BEFF?style=flat&logo=kaggle)](https://www.kaggle.com/competitions/playground-series-s6e8)
+[![Peak ROC-AUC](https://img.shields.io/badge/Peak%20ROC--AUC-0.96943-success.svg?style=flat)]()
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg?style=flat&logo=python)](https://www.python.org/)
 [![Pytest Passed](https://img.shields.io/badge/Tests-32%20Passed%20%7C%20100%25-brightgreen.svg?style=flat&logo=pytest)](https://docs.pytest.org/)
 [![Pydantic v2](https://img.shields.io/badge/Validation-Pydantic%20v2-red.svg?style=flat&logo=pydantic)](https://docs.pydantic.dev/)
 [![Ensemble](https://img.shields.io/badge/Architecture-4--Way%20GBDT%20%2B%20Deep%20Tabular%20MLP-purple.svg?style=flat)]()
 [![Optimization](https://img.shields.io/badge/Stacking-SLSQP%20%2B%20Gauss--Rank-orange.svg?style=flat)]()
+
+> 🏆 **Kaggle Competition Benchmark (S6E8):**  
+> • **Final Official Standing:** **Top Quartile (Rank #950 of 3,532 Teams)**  
+> • **Peak Multi-Wave Ensemble:** **0.96943 Public ROC-AUC / 0.96920 Private ROC-AUC**
 
 An end-to-end, production-grade Decision Intelligence and Machine Learning pipeline developed for **Kaggle Playground Series s6e8: Predicting Smartphone Addiction**.
 
@@ -34,6 +40,7 @@ Predicting-Smartphone-Addiction/
 │   ├── test_blending.py         # Rank stacker & SLSQP convex blending verification
 │   ├── test_tuner.py            # Optuna tuner & unseen categories resilience
 │   └── test_studio_engine.py    # API mocking & token tracking verification
+├── assets/                      # High-resolution architectural figures & visual insights
 ├── pyproject.toml               # Modern Python project configuration
 └── requirements.txt             # Locked production dependencies
 ```
@@ -44,10 +51,15 @@ Predicting-Smartphone-Addiction/
 
 ### 1. Feature Signal Emergence & Domain Ratios
 Tree-based gradient boosters benefit substantially from native branch routing on missing values. Destructive global imputations (mean, median) are strictly avoided in favor of mathematically grounded domain balances:
-- **24-Hour Life Budget Balance:** Residual unallocated time ($\text{Budget} = 24 - (\text{Screen} + \text{Work} + \text{Sleep})$).
-- **Residual Screen Time:** Screen time not accounted for by social, gaming, or work apps.
-- **Compulsive Pull Ratio:** Interaction checking intensity ($\text{App Opens} / (\text{Notifications} + 1)$).
-- **Work Shield Factor:** Protective mitigation of productive work against addiction probability ($\frac{\text{Work}}{\text{Screen} + \epsilon} \cdot \exp(-\frac{\text{Leisure}}{2.5})$).
+
+- **24-Hour Life Budget Residual:**
+  $$\text{Unaccounted Hours} = 24.0 - (\text{Screen Hours} + \text{Work Hours} + \text{Sleep Hours})$$
+- **Residual Screen Time:** Screen time not accounted for by social, gaming, or work apps:
+  $$\text{Other Screen} = \text{Screen Hours} - (\text{Social Hours} + \text{Gaming Hours} + \text{Work Hours})$$
+- **Compulsive Pull Ratio:** Interaction checking intensity indicator:
+  $$\text{CPR} = \frac{\text{App Opens}}{\text{Notifications} + 1.0}$$
+- **Work Shield Factor:** Protective mitigation of productive work against addiction probability:
+  $$\text{WSF} = \left(\frac{\text{Work Hours}}{\text{Screen Hours} + \epsilon}\right) \cdot \exp\left(-\frac{\text{Social Hours} + \text{Gaming Hours}}{2.5}\right)$$
 
 <p align="center">
   <img src="assets/figure1_feature_distributions.png" alt="Feature Signal Emergence" width="95%"/>
