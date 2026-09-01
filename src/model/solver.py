@@ -56,8 +56,8 @@ XGB_PARAMS = {
 CAT_PARAMS = {
     "loss_function": "Logloss",
     "eval_metric": "AUC",
-    "iterations": 2200,
-    "learning_rate": 0.025,
+    "iterations": 1200,
+    "learning_rate": 0.035,
     "depth": 5,
     "l2_leaf_reg": 15.0,
     "random_strength": 1.0,
@@ -95,7 +95,9 @@ def get_calibrated_model_params() -> Tuple[Dict[str, Any], Dict[str, Any], Dict[
 
     if has_cuda:
         xgb_p["device"] = "cuda"
+        xgb_p["tree_method"] = "hist"
         cat_p["task_type"] = "GPU"
+        cat_p.pop("thread_count", None)
     else:
         xgb_p["device"] = "cpu"
         cat_p["task_type"] = "CPU"

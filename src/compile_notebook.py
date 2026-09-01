@@ -123,14 +123,14 @@ seed_everything(42)"""
     cells.append(create_notebook_cell("markdown", """### Direct Cloud-to-Competition Submission (Zero Local Roundtrips)"""))
     cells.append(create_notebook_cell("code", """# Auto-submit directly from cloud environment to Kaggle
 import subprocess
-sub_file = "outputs/submission.csv"
+sub_file = "submission.csv" if os.path.exists("submission.csv") else "outputs/submission.csv"
 if os.path.exists(sub_file):
-    print("🚀 Submitting directly from Cloud to Kaggle Competition...", flush=True)
+    print(f"🚀 Submitting {sub_file} directly from Cloud to Kaggle Competition...", flush=True)
     res = subprocess.run([
         "kaggle", "competitions", "submit",
         "-c", "playground-series-s6e8",
         "-f", sub_file,
-        "-m", "V10: 10-Fold Ensemble + Optuna Tuned + ValueLevel Target Enc + Productive Shield"
+        "-m", "Elite 10-Fold 4-Way GPU Ensemble (LGB+XGB+CAT+NN + Stacker)"
     ], capture_output=True, text=True)
     print(res.stdout, flush=True)
     if res.stderr:

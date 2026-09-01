@@ -257,8 +257,9 @@ def run_fast_production_training(
         "id": test_ids,
         target_col: final_test_preds
     })
-    sub_path = "submission_elite_wave11.csv"
+    sub_path = "submission.csv"
     sub.to_csv(sub_path, index=False)
+    sub.to_csv("submission_elite_wave11.csv", index=False)
     print(f"✅ Final Production Submission saved: {sub_path} (Shape: {sub.shape})")
 
     total_elapsed = time.time() - start_time
@@ -272,4 +273,15 @@ def run_fast_production_training(
 
 
 if __name__ == "__main__":
-    run_fast_production_training()
+    import argparse
+    parser = argparse.ArgumentParser(description="Run Fast Production Training")
+    parser.add_argument("--folds", type=int, default=5, help="Number of Stratified CV folds (default: 5)")
+    parser.add_argument("--sample-size", type=int, default=None, help="Downsample training set for fast proxy testing")
+    parser.add_argument("--no-gcs", action="store_true", help="Disable GCS bucket sync")
+    args = parser.parse_args()
+
+    run_fast_production_training(
+        n_splits=args.folds,
+        sample_size=args.sample_size,
+        gcs_bucket=None if args.no_gcs else "gs://ali-s6e8-kaggle-artifacts-2026"
+    )

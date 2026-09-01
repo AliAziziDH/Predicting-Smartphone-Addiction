@@ -157,7 +157,8 @@ def main():
     sub_path = os.path.join(outputs_dir, "submission.csv")
 
     submission.to_csv(sub_path, index=False)
-    print(f"Sanity checks passed. Final submission saved to {sub_path}")
+    submission.to_csv("submission.csv", index=False)
+    print(f"Sanity checks passed. Final submission saved to {sub_path} and submission.csv")
 
 if __name__ == "__main__":
     main()
