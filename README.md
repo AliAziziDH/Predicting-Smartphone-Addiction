@@ -120,14 +120,48 @@ python src/compile_notebook.py
 
 ---
 
-## 📊 Benchmark Summary
+## 📈 The Optimization Journey: From Baseline (0.949) to Peak Meta-Blend (0.96943)
 
-| Model / Ensemble | CV Strategy | Ensembling Strategy | Evaluation Metric (ROC-AUC) |
-| :--- | :---: | :---: | :---: |
-| LightGBM Baseline | 10-Fold Stratified | Single Model | ~0.9640 |
-| XGBoost Baseline | 10-Fold Stratified | Single Model | ~0.9645 |
-| CatBoost Baseline | 10-Fold Stratified | Single Model | ~0.9555 |
-| **4-Way Hybrid Meta-Blend** | **10-Fold Stratified** | **SLSQP Rank-Blended + Logistic Stack** | **~0.9694** |
+Competitive machine learning is rarely about a single model; it is an iterative optimization trajectory. Here is how the architecture evolved over 12 development waves:
+
+```
+[Wave 1-5: Naive GBDT + Imputation] ──► 0.94979
+             │
+             ▼
+[Wave 6-7: 24h Life Budget & Domain Ratios] ──► 0.96434 (+0.0145)
+             │
+             ▼
+[Wave 8: Out-of-Fold Discrete Target Encoding] ──► 0.96469
+             │
+             ▼
+[Wave 9: 54 Scaled Features + Nelder-Mead Rank Stack] ──► 0.96919
+             │
+             ▼
+[Wave 9 + 10: Multi-Wave Rank Blending (Peak Formulation)] ──► 0.96943 Public / 0.96920 Private
+```
+
+### 🗺️ Iterative Progression Table
+
+| Development Wave / Strategy | Key Architectural Innovation | Public ROC-AUC | Private ROC-AUC | Key Lesson |
+| :--- | :--- | :---: | :---: | :--- |
+| **Initial GBDT Baselines** | Raw features, global mean imputation | `0.94979` | `0.95015` | Destructive imputation damages tree branch decisions. |
+| **Wave 6: Domain Formulation** | 24h life budget, residual screen time, native NaNs | `0.96434` | `0.96430` | Domain physics (time budget constraints) produce massive signal gain. |
+| **Wave 7: Discrete Target Encoding** | 5-Fold internal OOF encoding with Laplace smoothing | `0.96440` | `0.96436` | Encoding categorical pairs (`gender × stress`) captures non-linear interactions. |
+| **Wave 8: Regularized 10-Fold CV** | Deep tree regularization + early stopping | `0.96463` | `0.96469` | High-capacity trees require aggressive path smoothing ($L_1/L_2$). |
+| **Wave 9: Discrete Lattice & Stacking** | 54 features + Nelder-Mead Gauss-Rank stacker | `0.96941` | `0.96919` | Gauss-Rank percentiles eliminate cross-model calibration shifts. |
+| **Wave 10: StudioEngine Discovery** | 63 features + continuous Deep Tabular MLP | `0.96941` | `0.96917` | Neural networks provide essential non-tree continuous representation. |
+| **🏆 Wave 9 + 10 Meta-Blend** | **Multi-Wave SLSQP Bounded Rank Ensemble** | **`0.96943`** | **`0.96920`** | **Optimal ensembling of diverse feature sets yields peak generalization.** |
+
+---
+
+### 💡 Key Takeaways & Post-Mortem Insights
+
+1. **Feature Engineering Over Hyperparameter Tuning:**  
+   The single largest jump ($+0.015$ AUC) came from formulating **closed time-budget constraints** and **interaction intensity ratios**, far outperforming raw grid search on default features.
+2. **Preserve Native Missingness:**  
+   Allowing gradient boosting split finders to route `np.nan` values natively preserved critical missingness information that global imputation destroyed.
+3. **Rank-Space Ensembling Guards Against Shift:**  
+   Averaging raw probabilities often suffers when models have different calibration slopes. Converting predictions to empirical percentiles ($\text{Rank}(p)$) before SLSQP optimization provided total resilience against distribution shift.
 
 ---
 
